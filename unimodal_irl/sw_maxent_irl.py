@@ -19,12 +19,13 @@ def backward_pass(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas=Non
         parents (dict): Dictionary mapping states to (s, a) parent tuples
         
         gamma (float): Discount factor
-        rs (numpy array): Linear state reward weights
-        rsa (numpy array): Linear state-action reward weights
-        rsas (numpy array): Linear state-action-state reward weights
+        rs (numpy array): |S| array of linear state reward weights
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
+        rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward
+            weights
     
     Returns:
-        (numpy array): |S| x L array of backward message values
+        (numpy array): |S|xL array of backward message values
     """
 
     if rs is None:
@@ -60,12 +61,12 @@ def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas
         parents (dict): Dictionary mapping states to (s, a) parent tuples
         
         gamma (float): Discount factor
-        rs (numpy array): Linear state reward weights
-        rsa (numpy array): Linear state-action reward weights
+        rs (numpy array): |S| array of linear state reward weights
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
         rsas (numpy array): Linear state-action-state reward weights
     
     Returns:
-        (numpy array): |S| x L array of backward message values in log space
+        (numpy array): |S|xL array of backward message values in log space
     """
 
     if rs is None:
@@ -117,12 +118,12 @@ def forward_pass(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None):
         children (dict): Dictionary mapping states to (a, s') child tuples
         
         gamma (float): Discount factor
-        rs (numpy array): Linear state reward weights
-        rsa (numpy array): Linear state-action reward weights
+        rs (numpy array): |S| array of linear state reward weights
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
         rsas (numpy array): Linear state-action-state reward weights
     
     Returns:
-        (numpy array): |S| x L array of forward message values
+        (numpy array): |S|xL array of forward message values
     """
 
     if rs is None:
@@ -252,15 +253,20 @@ def marginals(L, t_mat, alpha, beta, Z_theta, gamma=1.0, rsa=None, rsas=None):
     
     Args:
         L (int): Maximum path length
-        t_mat (numpy array):
-        alpha (numpy array):
-        beta (numpy array):
-        Z_theta (float):
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        alpha (numpy array): |S|xL array of backward message values
+        beta (numpy array): |S|xL array of forward message values
+        Z_theta (float): Partition value
         
-        gamma (float):
-        rsa (numpy array):
-        rsas (numpy array):
+        gamma (float): Discount factor
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
+        rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward
+            weights
     
+    Returns:
+        (numpy array): |S| array of state marginals
+        (numpy array): |S|x|A| array of state-action marginals
+        (numpy array): |S|x|A|x|S| array of state-action-state marginals
     """
 
     if rsa is None:
