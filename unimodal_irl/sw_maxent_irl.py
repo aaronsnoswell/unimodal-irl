@@ -194,15 +194,48 @@ def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None
     return beta
 
 
-def partition(L, alpha):
+def partition(L, alpha, with_dummy_state=True):
     """Compute the partition function
     
     Args:
         L (int): Maximum path length
-        alpha (numpy array): |S+1|xL backward message variable. The extra finla state
-            accounts for the dummy state.
+        alpha (numpy array): |S|xL backward message variable
+        with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
+            to a dummy state which is used for MDP padding
+        
+    Returns:
+        (float): Partition function value
     """
-    return np.sum(alpha[:-1, 0:L])
+
+    # If the dummy state is included, don't include it in the partition
+    if with_dummy_state:
+        alpha = alpha[0:-1, :]
+
+    return np.sum(alpha[:, 0:L])
+
+
+def partition_log(L, alpha_log, with_dummy_state=True):
+    """Compute the partition function
+    
+    Args:
+        L (int): Maximum path length
+        alpha_log (numpy array): |S|xL backward message variable in log space
+        with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
+            to a dummy state which is used for MDP padding
+        
+    Returns:
+        (float): Partition function value
+    """
+
+    # If the dummy state is included, don't include it in the partition
+    if with_dummy_state:
+        alpha_log = alpha_log[0:-1, :]
+
+    # Find maximum value
+    m = np.max(alpha_log[:, 0:L])
+
+    # Compute partition in log space
+    return m + np.log(np.sum(np.exp(alpha_log[:, 0:L] - m)))
 
 
 def marginals(L, t_mat, alpha, beta, Z_theta, gamma=1.0, rsa=None, rsas=None):
@@ -447,6 +480,7 @@ def main():
     )
 
     Z_theta = partition(L, alpha)
+    Z_theta_log = partition_log(L, alpha_log)
 
     pts, ptsa, ptsas = marginals(
         L,
@@ -477,6 +511,7 @@ def main():
     np.testing.assert_array_almost_equal(beta, np.exp(beta_log))
 
     print("Z = {}".format(Z_theta))
+    np.testing.assert_almost_equal(Z_theta, np.exp(Z_theta_log))
 
     print("p_t(s) = ")
     print(pts)
