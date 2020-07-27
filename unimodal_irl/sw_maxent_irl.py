@@ -17,6 +17,7 @@ def backward_pass(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas=Non
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         parents (dict): Dictionary mapping states to (s, a) parent tuples
+        
         gamma (float): Discount factor
         rs (numpy array): Linear state reward weights
         rsa (numpy array): Linear state-action reward weights
@@ -57,6 +58,7 @@ def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         parents (dict): Dictionary mapping states to (s, a) parent tuples
+        
         gamma (float): Discount factor
         rs (numpy array): Linear state reward weights
         rsa (numpy array): Linear state-action reward weights
@@ -113,6 +115,7 @@ def forward_pass(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None):
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         children (dict): Dictionary mapping states to (a, s') child tuples
+        
         gamma (float): Discount factor
         rs (numpy array): Linear state reward weights
         rsa (numpy array): Linear state-action reward weights
@@ -152,6 +155,7 @@ def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         children (dict): Dictionary mapping states to (a, s') child tuples
+        
         gamma (float): Discount factor
         rs (numpy array): Linear state reward weights
         rsa (numpy array): Linear state-action reward weights
@@ -203,6 +207,7 @@ def partition(L, alpha, with_dummy_state=True):
     Args:
         L (int): Maximum path length
         alpha (numpy array): |S|xL backward message variable
+        
         with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
             to a dummy state which is used for MDP padding
         
@@ -223,6 +228,7 @@ def partition_log(L, alpha_log, with_dummy_state=True):
     Args:
         L (int): Maximum path length
         alpha_log (numpy array): |S|xL backward message variable in log space
+        
         with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
             to a dummy state which is used for MDP padding
         
@@ -242,7 +248,20 @@ def partition_log(L, alpha_log, with_dummy_state=True):
 
 
 def marginals(L, t_mat, alpha, beta, Z_theta, gamma=1.0, rsa=None, rsas=None):
-    """Compute marginal terms"""
+    """Compute marginal terms
+    
+    Args:
+        L (int): Maximum path length
+        t_mat (numpy array):
+        alpha (numpy array):
+        beta (numpy array):
+        Z_theta (float):
+        
+        gamma (float):
+        rsa (numpy array):
+        rsas (numpy array):
+    
+    """
 
     if rsa is None:
         rsa = np.zeros(np.array(t_mat.shape[0:2]))
