@@ -307,6 +307,102 @@ def marginals(L, t_mat, alpha, beta, Z_theta, gamma=1.0, rsa=None, rsas=None):
     return pts, ptsa, ptsas
 
 
+def marginals_log(
+    L, t_mat, alpha_log, beta_log, Z_theta_log, gamma=1.0, rsa=None, rsas=None
+):
+    """Compute marginal terms
+    
+    Args:
+        L (int): Maximum path length
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        alpha_log (numpy array): |S|xL array of backward message values in log space
+        beta_log (numpy array): |S|xL array of forward message values in log space
+        Z_theta_log (float): Partition value in log space
+        
+        gamma (float): Discount factor
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
+        rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward
+            weights
+    
+    Returns:
+        (numpy array): |S| array of state marginals in log space
+        (numpy array): |S|x|A| array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S| array of state-action-state marginals in log space
+    """
+
+    if rsa is None:
+        rsa = np.zeros(np.array(t_mat.shape[0:2]))
+    if rsas is None:
+        rsas = np.zeros(np.array(t_mat.shape[0:3]))
+
+    pts = np.zeros((t_mat.shape[0], L))
+    ptsa = np.zeros((t_mat.shape[0], t_mat.shape[1], L - 1))
+    ptsas = np.zeros((t_mat.shape[0], t_mat.shape[1], t_mat.shape[2], L - 1))
+
+    for t in range(L - 1):
+
+        for s1 in range(t_mat.shape[0]):
+
+            if np.isneginf(alpha_log[s1, t]):
+                # Catch edge case where the backward message value is zero to prevent
+                # floating point error
+                pts[s1, t] = -np.inf
+                ptsa[s1, :, t] = -np.inf
+                ptsas[s1, :, :, t] = -np.inf
+            else:
+                # Compute max value
+                m_t = _NINF
+                for a in range(t_mat.shape[1]):
+                    for s2 in range(t_mat.shape[2]):
+                        if t_mat[s1, a, s2] != 0:
+                            """We don't iterate over valid children for efficiency reasons
+                            therefore we manually skip invalid children to avoid
+                            log divide-by-zero errors
+                            """
+                            m_t = max(
+                                m_t,
+                                (
+                                    np.log(t_mat[s1, a, s2])
+                                    + gamma ** ((t + 1) - 1)
+                                    * (rsa[s1, a] + rsas[s1, a, s2])
+                                    + beta_log[s2, L - (t + 1) - 1]
+                                ),
+                            )
+                m_t += alpha_log[s1, t] - Z_theta_log
+
+                with np.errstate(all="raise"):
+                    # Compute state marginals in log space
+                    for a in range(t_mat.shape[1]):
+                        for s2 in range(t_mat.shape[2]):
+                            contrib = t_mat[s1, a, s2] * np.exp(
+                                alpha_log[s1, t]
+                                + gamma ** ((t + 1) - 1)
+                                * (rsa[s1, a] + rsas[s1, a, s2])
+                                + beta_log[s2, L - (t + 1) - 1]
+                                - Z_theta_log
+                                - m_t
+                            )
+                            pts[s1, t] += contrib
+                            ptsa[s1, a, t] += contrib
+                            if contrib == 0:
+                                ptsas[s1, a, s2, t] = -np.inf
+                            else:
+                                ptsas[s1, a, s2, t] = m_t + np.log(contrib)
+                        if ptsa[s1, a, t] == 0:
+                            ptsa[s1, a, t] = -np.inf
+                        else:
+                            ptsa[s1, a, t] = m_t + np.log(ptsa[s1, a, t])
+                    if pts[s1, t] == 0:
+                        pts[s1, t] = -np.inf
+                    else:
+                        pts[s1, t] = m_t + np.log(pts[s1, t])
+
+    # Compute final column of pts
+    pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
+
+    return pts, ptsa, ptsas
+
+
 def main():
     """Main function"""
 
@@ -452,14 +548,28 @@ def main():
         rsas=env.state_action_state_rewards,
     )
 
+    pts_log, ptsa_log, ptsas_log = marginals_log(
+        L,
+        env.t,
+        alpha_log,
+        beta_log,
+        Z_theta_log,
+        gamma,
+        rsa=env.state_action_rewards,
+        rsas=env.state_action_state_rewards,
+    )
+
     # Drop dummy components
     alpha = alpha[0:-1, 0:4]
     alpha_log = alpha_log[0:-1, 0:4]
     beta = beta[0:-1, 0:4]
     beta_log = beta_log[0:-1, 0:4]
     pts = pts[0:-1, 0:4]
+    pts_log = pts_log[0:-1, 0:4]
     ptsa = ptsa[0:-1, 0:-1, 0:3]
+    ptsa_log = ptsa_log[0:-1, 0:-1, 0:3]
     ptsas = ptsas[0:-1, 0:-1, 0:-1, 0:3]
+    ptsas_log = ptsas_log[0:-1, 0:-1, 0:-1, 0:3]
 
     print("Alpha = ")
     print(alpha)
@@ -474,14 +584,17 @@ def main():
 
     print("p_t(s) = ")
     print(pts)
+    np.testing.assert_array_almost_equal(pts, np.exp(pts_log))
     np.testing.assert_array_almost_equal(pts, pts_GT)
 
     print("p_t(s, a) = ")
     print(ptsa)
+    np.testing.assert_array_almost_equal(ptsa, np.exp(ptsa_log))
     np.testing.assert_array_almost_equal(ptsa, ptsa_GT)
 
     print("p_t(s, a, s') = ")
     print(ptsas)
+    np.testing.assert_array_almost_equal(ptsas, np.exp(ptsas_log))
     np.testing.assert_array_almost_equal(ptsas, ptsas_GT)
 
 
