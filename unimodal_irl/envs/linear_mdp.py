@@ -6,10 +6,7 @@ import matplotlib.pyplot as plt
 
 from gym import spaces
 
-from unimodal_irl.envs.wrappers import d_ConvenienceEnv
 
-
-@d_ConvenienceEnv
 class LinearMDPEnv(gym.Env):
     def __init__(self):
         self.observation_space = spaces.Discrete(4)
