@@ -495,3 +495,49 @@ def env_solve(env, L, with_dummy_state=True):
     )
     return np.exp(pts_log), np.exp(ptsa_log), np.exp(ptsas_log), np.exp(Z_theta_log)
 
+
+def maxent_irl(rollouts, env):
+    """Maximum Entropy IRL
+    
+    Args:
+        rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
+        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+    
+    Returns:
+        TODO
+    """
+
+    # Find max path length
+    max_path_length = max(*[len(r) for r in rollouts])
+    min_path_length = min(*[len(r) for r in rollouts])
+    print("Max path length: {}".format(max_path_length))
+
+    if min_path_length != max_path_length:
+        warnings.warn("Paths are of unequal lengths - padding")
+
+    # Find discounted feature expectations
+    phibar_s = np.zeros(env.t_mat.shape[0])
+    phibar_sa = np.zeros(env.t_mat.shape[0 : 1 + 1])
+    phibar_sas = np.zeros(env.t_mat.shape)
+    for r in rollouts:
+
+        if env.state_rewards is not None:
+            for t, (s1, _) in enumerate(r):
+                phibar_s[s1] += (env.gamma ** t) * 1
+
+        if env.state_action_rewards is not None:
+            for t, (s1, a) in enumerate(r[:-1]):
+                phibar_sa[s1, a] += (env.gamma ** t) * 1
+
+        if env.state_action_state_rewards is not None:
+            for t, (s1, a) in enumerate(r[:-1]):
+                s2 = r[t + 1][0]
+                phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
+
+    print(phibar_s)
+    print(phibar_sa)
+    print(phibar_sas)
+
+    # Begin gradient ascent loop
+    # TODO
+
