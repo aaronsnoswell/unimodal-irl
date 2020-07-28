@@ -106,6 +106,28 @@ def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas
     return alpha
 
 
+def env_backward(env, L):
+    """Convenience method for backward message passing
+    
+    Args:
+        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        L (int): Max path length
+    
+    Returns:
+        (numpy array): |S|xL array of backward message values in log space
+    """
+    return backward_pass_log(
+        env.p0s,
+        L,
+        env.t_mat,
+        env.parents,
+        gamma=env.gamma,
+        rs=env.state_rewards,
+        rsa=env.state_action_rewards,
+        rsas=env.state_action_state_rewards,
+    )
+
+
 def forward_pass(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute forward message passing variable
     
@@ -197,6 +219,27 @@ def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None
             beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
 
     return beta
+
+
+def env_forward(env, L):
+    """Convenience method for forward message passing
+    
+    Args:
+        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        L (int): Max path length
+    
+    Returns:
+        (numpy array): |S|xL array of forward message values in log space
+    """
+    return forward_pass_log(
+        L,
+        env.t_mat,
+        env.children,
+        gamma=env.gamma,
+        rs=env.state_rewards,
+        rsa=env.state_action_rewards,
+        rsas=env.state_action_state_rewards,
+    )
 
 
 def partition(L, alpha, with_dummy_state=True):
@@ -398,3 +441,55 @@ def marginals_log(
     pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
 
     return pts, ptsa, ptsas
+
+
+def env_marginals(env, L, alpha_log, beta_log, Z_theta_log):
+    """Convenience method
+    
+    Args:
+        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        L (int): Max path length
+        alpha_log (numpy array): |S|xL array of backward message values in log space
+        beta_log (numpy array): |S|xL array of forward message values in log space
+        Z_theta_log (float): Partition value in log space
+    
+    Returns:
+        (numpy array): |S| array of state marginals in log space
+        (numpy array): |S|x|A| array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S| array of state-action-state marginals in log space
+    """
+    return marginals_log(
+        L,
+        env.t_mat,
+        alpha_log,
+        beta_log,
+        Z_theta_log,
+        gamma=env.gamma,
+        rsa=env.state_action_rewards,
+        rsas=env.state_action_state_rewards,
+    )
+
+
+def env_solve(env, L, with_dummy_state=True):
+    """Convenience method to solve an environment for marginals
+    
+    Args:
+        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        L (int): Max path length
+        with_dummy_state (bool): Indicates if the environment has been padded with a
+            dummy state and action, or not
+    
+    Returns:
+        (numpy array): |S| array of state marginals
+        (numpy array): |S|x|A| array of state-action marginals
+        (numpy array): |S|x|A|x|S| array of state-action-state marginals
+        (float): Partition value
+    """
+    alpha_log = env_backward(env, L)
+    beta_log = env_forward(env, L)
+    Z_theta_log = partition_log(L, alpha_log, with_dummy_state=with_dummy_state)
+    pts_log, ptsa_log, ptsas_log = env_marginals(
+        env, L, alpha_log, beta_log, Z_theta_log
+    )
+    return np.exp(pts_log), np.exp(ptsa_log), np.exp(ptsas_log), np.exp(Z_theta_log)
+
