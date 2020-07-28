@@ -5,7 +5,7 @@ import numpy as np
 
 # Test fixtures
 from unimodal_irl.envs.linear_mdp import LinearMDPEnv
-from unimodal_irl.envs.utils import pad_mdp
+from unimodal_irl.envs.utils import pad_terminal_mdp
 
 # Methods to test
 from unimodal_irl.sw_maxent_irl import (
@@ -30,7 +30,7 @@ def env_rs():
     env._state_rewards = np.random.randn(4)
 
     # Pad the MDP
-    env = pad_mdp(env)
+    env = pad_terminal_mdp(env)
 
     return env
 
@@ -45,7 +45,7 @@ def env_rsa():
     env._state_action_rewards = np.random.randn(4, 1)
 
     # Pad the MDP
-    env = pad_mdp(env)
+    env = pad_terminal_mdp(env)
 
     return env
 
@@ -60,7 +60,7 @@ def env_rsas():
     env._state_action_state_rewards = np.random.randn(4, 1, 4)
 
     # Pad the MDP
-    env = pad_mdp(env)
+    env = pad_terminal_mdp(env)
 
     return env
 
@@ -77,7 +77,7 @@ def env_all():
     env._state_action_state_rewards = np.random.randn(4, 1, 4)
 
     # Pad the MDP
-    env = pad_mdp(env)
+    env = pad_terminal_mdp(env)
 
     return env
 

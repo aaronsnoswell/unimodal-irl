@@ -26,8 +26,13 @@ def compute_parents_children(t_mat, terminal_state_mask):
     return parents, children
 
 
-def pad_mdp(env):
-    """Pads an MDP, adding a dummy state and action
+def pad_terminal_mdp(env):
+    """Pads a terminal MDP, adding a dummy state and action
+    
+    We gain a O(|S|) space and time efficiency improvement with our MaxEnt IRL algorithm
+    for MDPs with terminal states by transforming them to have no terminal states. This
+    is done by adding a dummy state and action that pad any trajectories out to a fixed
+    upper length.
     
     Args:
         env (.explicit_env.IExplicitEnv) Explicit MDP environment
