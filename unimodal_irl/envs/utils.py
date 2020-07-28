@@ -1,3 +1,5 @@
+"""Various utility methods related to Gym environments"""
+
 import copy
 import numpy as np
 
