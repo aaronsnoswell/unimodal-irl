@@ -1,4 +1,6 @@
-import copy
+"""Implements Maximum Entropy IRL from my thesis"""
+
+import warnings
 import numpy as np
 
 
