@@ -306,9 +306,9 @@ def marginals(L, t_mat, alpha, beta, Z_theta, gamma=1.0, rsa=None, rsas=None):
             weights
     
     Returns:
-        (numpy array): |S| array of state marginals
-        (numpy array): |S|x|A| array of state-action marginals
-        (numpy array): |S|x|A|x|S| array of state-action-state marginals
+        (numpy array): |S|xL array of state marginals
+        (numpy array): |S|x|A|xL array of state-action marginals
+        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals
     """
 
     if rsa is None:
@@ -367,9 +367,9 @@ def marginals_log(
             weights
     
     Returns:
-        (numpy array): |S| array of state marginals in log space
-        (numpy array): |S|x|A| array of state-action marginals in log space
-        (numpy array): |S|x|A|x|S| array of state-action-state marginals in log space
+        (numpy array): |S|xL array of state marginals in log space
+        (numpy array): |S|x|A|xL array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
     """
 
     if rsa is None:
@@ -456,9 +456,9 @@ def env_marginals(env, L, alpha_log, beta_log, Z_theta_log):
         Z_theta_log (float): Partition value in log space
     
     Returns:
-        (numpy array): |S| array of state marginals in log space
-        (numpy array): |S|x|A| array of state-action marginals in log space
-        (numpy array): |S|x|A|x|S| array of state-action-state marginals in log space
+        (numpy array): |S|xL array of state marginals in log space
+        (numpy array): |S|x|A|xL array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
     """
     return marginals_log(
         L,
