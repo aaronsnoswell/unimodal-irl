@@ -49,7 +49,7 @@ def get_rollouts(env, policy, num_rollouts, *, max_episode_length=None, verbose=
         rollout.append((s, None))
         rollouts.append(rollout)
 
-        if episode == num_rollouts:
+        if episode == num_rollouts - 1:
             break
 
     return rollouts
