@@ -9,7 +9,7 @@ setup(
     install_requires=[
         "gym >= 0.2.3",
         "numpy",
-        #'scipy',
+        "scipy",
         #'matplotlib',
         "python-interface",
     ],
