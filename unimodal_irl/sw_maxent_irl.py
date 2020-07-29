@@ -412,32 +412,30 @@ def marginals_log(
                             )
                 m_t += alpha_log[s1, t] - Z_theta_log
 
-                with np.errstate(all="raise"):
-                    # Compute state marginals in log space
-                    for a in range(t_mat.shape[1]):
-                        for s2 in range(t_mat.shape[2]):
-                            contrib = t_mat[s1, a, s2] * np.exp(
-                                alpha_log[s1, t]
-                                + gamma ** ((t + 1) - 1)
-                                * (rsa[s1, a] + rsas[s1, a, s2])
-                                + beta_log[s2, L - (t + 1) - 1]
-                                - Z_theta_log
-                                - m_t
-                            )
-                            pts[s1, t] += contrib
-                            ptsa[s1, a, t] += contrib
-                            if contrib == 0:
-                                ptsas[s1, a, s2, t] = -np.inf
-                            else:
-                                ptsas[s1, a, s2, t] = m_t + np.log(contrib)
-                        if ptsa[s1, a, t] == 0:
-                            ptsa[s1, a, t] = -np.inf
+                # Compute state marginals in log space
+                for a in range(t_mat.shape[1]):
+                    for s2 in range(t_mat.shape[2]):
+                        contrib = t_mat[s1, a, s2] * np.exp(
+                            alpha_log[s1, t]
+                            + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                            + beta_log[s2, L - (t + 1) - 1]
+                            - Z_theta_log
+                            - m_t
+                        )
+                        pts[s1, t] += contrib
+                        ptsa[s1, a, t] += contrib
+                        if contrib == 0:
+                            ptsas[s1, a, s2, t] = -np.inf
                         else:
-                            ptsa[s1, a, t] = m_t + np.log(ptsa[s1, a, t])
-                    if pts[s1, t] == 0:
-                        pts[s1, t] = -np.inf
+                            ptsas[s1, a, s2, t] = m_t + np.log(contrib)
+                    if ptsa[s1, a, t] == 0:
+                        ptsa[s1, a, t] = -np.inf
                     else:
-                        pts[s1, t] = m_t + np.log(pts[s1, t])
+                        ptsa[s1, a, t] = m_t + np.log(ptsa[s1, a, t])
+                if pts[s1, t] == 0:
+                    pts[s1, t] = -np.inf
+                else:
+                    pts[s1, t] = m_t + np.log(pts[s1, t])
 
     # Compute final column of pts
     pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
