@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 from scipy.optimize import minimize
 
+from unimodal_irl.envs.utils import pad_terminal_mdp
 
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
 _NINF = np.finfo(np.float64).min
@@ -575,10 +576,10 @@ def maxent_irl(
 
     with_dummy_state = False
     if min_path_length != max_path_length:
-        if verbose:
-            warnings.warn("Paths are of unequal lengths - padding")
+        warnings.warn("Paths are of unequal lengths - padding environment")
+        env = pad_terminal_mdp(env)
+        raise NotImplementedError("Need to add dummy states, actions to paths")
         with_dummy_state = True
-        raise NotImplementedError
 
     # Find discounted feature expectations
     phibar_s = np.zeros(env.t_mat.shape[0])
