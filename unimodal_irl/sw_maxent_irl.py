@@ -559,8 +559,11 @@ def maxent_irl(
     num_actions = len(env.actions)
 
     # Find max path length
-    max_path_length = max(*[len(r) for r in rollouts])
-    min_path_length = min(*[len(r) for r in rollouts])
+    if len(rollouts) == 1:
+        max_path_length = min_path_length = len(rollouts[0])
+    else:
+        max_path_length = max(*[len(r) for r in rollouts])
+        min_path_length = min(*[len(r) for r in rollouts])
     if verbose:
         print("Max path length: {}".format(max_path_length))
 
