@@ -2,6 +2,7 @@
 """
 
 import pickle
+import warnings
 import numpy as np
 import itertools as it
 
@@ -20,6 +21,11 @@ def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     Returns:
         (numpy array): |S| vector of state values
     """
+
+    if env.gamma < 1.0:
+        warnings.warn(
+            "Environment discount factor is 1.0 - value iteration will only converge if all paths terminate in a finite number of steps"
+        )
 
     value_fn = np.zeros(env.t_mat.shape[0])
 
