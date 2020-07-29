@@ -160,3 +160,60 @@ class EpsilonGreedyPolicy:
             )
 
         return action, None
+
+
+def policy_evaluation(env, policy, tolerance=1e-6):
+    """Determine the value function of a given deterministic policy
+    
+    Args:
+        env (.envs.explicit_env.IExplicitEnv) Explicit Gym environment
+        policy (object): Policy object providing a deterministic .predict(s) method to
+            match the stable-baselines policy API
+        
+        tolerance (float): State value convergence threshold
+    
+    Returns:
+        (numpy array): |S| state value vector
+    """
+    v_pi = np.zeros_like(env.states)
+
+    # Prepare linear reward arrays
+    _state_rewards = env.state_rewards
+    if _state_rewards is None:
+        _state_rewards = np.zeros(env.t_mat.shape[0])
+    _state_action_rewards = env.state_action_rewards
+    if _state_action_rewards is None:
+        _state_action_rewards = np.zeros(env.t_mat.shape[0 : 1 + 1])
+    _state_action_state_rewards = env.state_action_state_rewards
+    if _state_action_state_rewards is None:
+        _state_action_state_rewards = np.zeros(env.t_mat.shape)
+
+    for _iteration in it.count():
+        delta = 0
+
+        for s1 in env.states:
+            v = v_pi[s1]
+            v_pi[s1] = np.sum(
+                [
+                    (policy.predict(s1) == a)
+                    * np.sum(
+                        [
+                            env.t_mat[s1, a, s2]
+                            * (
+                                _state_action_rewards[s1, a]
+                                + _state_action_state_rewards[s1, a, s2]
+                                + _state_rewards[s2]
+                                + env.gamma * v_pi[s2]
+                            )
+                            for s2 in env.states
+                        ]
+                    )
+                    for a in env.actions
+                ]
+            )
+            delta = max(delta, np.abs(v - v_pi[s1]))
+
+        if delta < tolerance:
+            break
+
+    return v_pi
