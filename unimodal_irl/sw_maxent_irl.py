@@ -1,5 +1,6 @@
 """Implements Maximum Entropy IRL from my thesis"""
 
+import copy
 import warnings
 import numpy as np
 from scipy.optimize import minimize, brute
@@ -554,6 +555,9 @@ def maxent_irl(
     Returns:
         TODO
     """
+
+    # Copy the environment so we don't modify it
+    env = copy.deepcopy(env)
 
     num_states = len(env.states)
     num_actions = len(env.actions)
