@@ -494,6 +494,46 @@ def env_solve(env, L, with_dummy_state=True):
     return pts_log, ptsa_log, ptsas_log, Z_theta_log
 
 
+def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
+    if verbose:
+        print(theta_s)
+    env._state_rewards = theta_s
+    with np.errstate(over="raise"):
+        pts_log, _, _, Z_log = env_solve(
+            env, max_path_length, with_dummy_state=with_dummy_state
+        )
+        nll = Z_log - theta_s @ phibar_s
+        grad = np.sum(np.exp(pts_log), axis=1) - phibar_s
+    return nll, grad
+
+
+def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose):
+    if verbose:
+        print(theta_sa)
+    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
+    with np.errstate(over="raise"):
+        _, ptsa_log, _, Z_log = env_solve(
+            env, max_path_length, with_dummy_state=with_dummy_state
+        )
+        nll = Z_log - theta_sa @ phibar_sa.flatten()
+        grad = (np.sum(np.exp(ptsa_log), axis=2) - phibar_sa).flatten()
+    return nll, grad
+
+
+def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbose):
+    if verbose:
+        print(theta_sas)
+    env._state_action_state_rewards = theta_sas.reshape(
+        (len(env.states), len(env.actions), len(env.states))
+    )
+    with np.errstate(over="raise"):
+        _, _, ptsas_log, Z_log = env_solve(
+            env, max_path_length, with_dummy_state=with_dummy_state
+        )
+        nll = Z_log - theta_sas @ phibar_sas.flatten()
+        grad = (np.sum(np.exp(ptsas_log), axis=3) - phibar_sas).flatten()
+    return nll, grad
+
 
 def maxent_irl(rollouts, env):
     """Maximum Entropy IRL
