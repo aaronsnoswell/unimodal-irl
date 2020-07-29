@@ -2,6 +2,7 @@
 
 import warnings
 import numpy as np
+from scipy.optimize import minimize, brute
 
 
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
@@ -535,24 +536,40 @@ def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbo
     return nll, grad
 
 
-def maxent_irl(rollouts, env):
+def maxent_irl(
+    rollouts, env, rs=True, rsa=False, rsas=False, rbound=(-1.0, 1.0), verbose=False
+):
     """Maximum Entropy IRL
     
     Args:
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
         env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        
+        rs (bool): Optimize for state rewards?
+        rsa (bool): Optimize for state-action rewards?
+        rsas (bool): Optimize for state-action-state rewards?
+        rbound (float): Minimum and maximum reward weight values
+        verbose (bool): Extra logging
     
     Returns:
         TODO
     """
 
+    num_states = len(env.states)
+    num_actions = len(env.actions)
+
     # Find max path length
     max_path_length = max(*[len(r) for r in rollouts])
     min_path_length = min(*[len(r) for r in rollouts])
-    print("Max path length: {}".format(max_path_length))
+    if verbose:
+        print("Max path length: {}".format(max_path_length))
 
+    with_dummy_state = False
     if min_path_length != max_path_length:
-        warnings.warn("Paths are of unequal lengths - padding")
+        if verbose:
+            warnings.warn("Paths are of unequal lengths - padding")
+        with_dummy_state = True
+        raise NotImplementedError
 
     # Find discounted feature expectations
     phibar_s = np.zeros(env.t_mat.shape[0])
@@ -573,10 +590,79 @@ def maxent_irl(rollouts, env):
                 s2 = r[t + 1][0]
                 phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
 
-    print(phibar_s)
-    print(phibar_sa)
-    print(phibar_sas)
+    theta_s = None
+    if rs:
+        if verbose:
+            print("Optimizing state rewards")
+        res = minimize(
+            nll_s,
+            np.zeros(num_states),
+            args=(env, max_path_length, with_dummy_state, phibar_s, verbose),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=tuple(rbound for _ in range(num_states)),
+        )
+        theta_s = res.x
+        if verbose:
+            print(res)
+            print(
+                "Completed optimization after {} iterations, NLL = {}".format(
+                    res.nit, res.fun
+                )
+            )
+            print("theta_s = {}".format(theta_s))
 
-    # Begin gradient ascent loop
-    # TODO
+    theta_sa = None
+    if rsa:
+        if verbose:
+            print("Optimizing state-action rewards")
+        res = minimize(
+            nll_sa,
+            np.zeros(num_states * num_actions),
+            args=(env, max_path_length, with_dummy_state, phibar_sa, verbose),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=tuple(rbound for _ in range(num_states * num_actions)),
+        )
+        theta_sa = res.x.reshape((num_states, num_actions))
+        if verbose:
+            print(res)
+            print(
+                "Completed optimization after {} iterations, NLL = {}".format(
+                    res.nit, res.fun
+                )
+            )
+            print("theta_sa = {}".format(theta_sa))
 
+    theta_sas = None
+    if rsas:
+        if verbose:
+            print("Optimizing state-action-state rewards")
+        res = minimize(
+            nll_sas,
+            np.zeros(num_states * num_actions * num_states),
+            args=(env, max_path_length, with_dummy_state, phibar_sas, verbose),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
+        )
+        theta_sas = res.x.reshape((num_states, num_actions, num_states))
+        if verbose:
+            print(res)
+            print(
+                "Completed optimization after {} iterations, NLL = {}".format(
+                    res.nit, res.fun
+                )
+            )
+            print("theta_sas = {}".format(theta_sas))
+
+    return theta_s, theta_sa, theta_sas
+
+
+def main():
+    """Main function"""
+
+
+
+if __name__ == "__main__":
+    main()
