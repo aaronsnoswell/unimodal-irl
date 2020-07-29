@@ -3,7 +3,7 @@
 import copy
 import warnings
 import numpy as np
-from scipy.optimize import minimize, brute
+from scipy.optimize import minimize
 
 
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
@@ -538,7 +538,7 @@ def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbo
 
 
 def maxent_irl(
-    rollouts, env, rs=True, rsa=False, rsas=False, rbound=(-1.0, 1.0), verbose=False
+    rollouts, env, rs=True, rsa=False, rsas=False, rbound=(-1.0, 1.0), verbose=False,
 ):
     """Maximum Entropy IRL
     
@@ -553,7 +553,9 @@ def maxent_irl(
         verbose (bool): Extra logging
     
     Returns:
-        TODO
+        (numpy array): State reward weights
+        (numpy array): State-action reward weights
+        (numpy array): State-action-state reward weights
     """
 
     # Copy the environment so we don't modify it
@@ -668,7 +670,7 @@ def maxent_irl(
 
 def main():
     """Main function"""
-
+    pass
 
 
 if __name__ == "__main__":
