@@ -480,10 +480,10 @@ def env_solve(env, L, with_dummy_state=True):
             dummy state and action, or not
     
     Returns:
-        (numpy array): |S| array of state marginals
-        (numpy array): |S|x|A| array of state-action marginals
-        (numpy array): |S|x|A|x|S| array of state-action-state marginals
-        (float): Partition value
+        (numpy array): |S|xL array of state marginals in log space
+        (numpy array): |S|x|A|xL array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
+        (float): Partition value in log space
     """
     alpha_log = env_backward(env, L)
     beta_log = env_forward(env, L)
@@ -491,7 +491,8 @@ def env_solve(env, L, with_dummy_state=True):
     pts_log, ptsa_log, ptsas_log = env_marginals(
         env, L, alpha_log, beta_log, Z_theta_log
     )
-    return np.exp(pts_log), np.exp(ptsa_log), np.exp(ptsas_log), np.exp(Z_theta_log)
+    return pts_log, ptsa_log, ptsas_log, Z_theta_log
+
 
 
 def maxent_irl(rollouts, env):
