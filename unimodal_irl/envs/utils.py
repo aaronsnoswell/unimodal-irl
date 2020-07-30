@@ -30,7 +30,7 @@ def compute_parents_children(t_mat, terminal_state_mask):
     return parents, children
 
 
-def pad_terminal_mdp(env, rollouts):
+def pad_terminal_mdp(env, *, rollouts=None):
     """Pads a terminal MDP, adding a dummy state and action
     
     We gain a O(|S|) space and time efficiency improvement with our MaxEnt IRL algorithm
@@ -111,24 +111,25 @@ def pad_terminal_mdp(env, rollouts):
         env._state_action_state_rewards = state_action_state_rewards2
 
     # Finally, pad the trajectories
+    if rollouts is None:
+        return env
+    else:
+        # Measure the length of the rollouts
+        r_len = [len(r) for r in rollouts]
+        max_length = max(r_len)
 
-    # Measure the length of the rollouts
-    r_len = [len(r) for r in rollouts]
-    max_length = max(r_len)
-
-    _rollouts = []
-    dummy_state = t_mat2.shape[0] - 1
-    dummy_action = t_mat2.shape[1] - 1
-    for r in rollouts:
-        if len(r) < max_length:
-            s, _ = r[-1]
-            r[-1] = (s, dummy_action)
-            while len(r) != max_length - 1:
-                r.append((dummy_state, dummy_action))
-            r.append((dummy_state, None))
-        _rollouts.append(r)
-
-    return env, _rollouts
+        _rollouts = []
+        dummy_state = t_mat2.shape[0] - 1
+        dummy_action = t_mat2.shape[1] - 1
+        for r in rollouts:
+            if len(r) < max_length:
+                s, _ = r[-1]
+                r[-1] = (s, dummy_action)
+                while len(r) != max_length - 1:
+                    r.append((dummy_state, dummy_action))
+                r.append((dummy_state, None))
+            _rollouts.append(r)
+        return env, _rollouts
 
 
 def discrete2explicit(env, *, gamma=1.0):
