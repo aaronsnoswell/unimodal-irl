@@ -556,7 +556,7 @@ nll_sas._call_count = 0
 def maxent_irl(
     rollouts,
     env,
-    rs=True,
+    rs=False,
     rsa=False,
     rsas=False,
     rbound=(-1.0, 1.0),
@@ -582,6 +582,8 @@ def maxent_irl(
         (numpy array): State-action reward weights
         (numpy array): State-action-state reward weights
     """
+
+    assert rs or rsa or rsas, "Must request at least one of rs, rsa or rsas"
 
     # Copy the environment so we don't modify it
     env = copy.deepcopy(env)
