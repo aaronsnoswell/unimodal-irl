@@ -1,6 +1,7 @@
 """Various utility methods related to Gym environments"""
 
 import copy
+import warnings
 import numpy as np
 import itertools as it
 from types import MethodType
@@ -31,7 +32,7 @@ def compute_parents_children(t_mat, terminal_state_mask):
     return parents, children
 
 
-def pad_terminal_mdp(env):
+def pad_terminal_mdp(env, rollouts):
     """Pads a terminal MDP, adding a dummy state and action
     
     We gain a O(|S|) space and time efficiency improvement with our MaxEnt IRL algorithm
@@ -41,16 +42,21 @@ def pad_terminal_mdp(env):
     
     Args:
         env (.explicit_env.IExplicitEnv) Explicit MDP environment
+        
+        rollouts (list): List of [(s, a), (s, a), ..., (s, None)] rollouts to pad
     
     Returns:
         (.explicit_env.IExplicitEnv) Explicit MDP environment, padded with a dummy
             state and action so that it has no terminal states.
+        (list): List of rollouts, padded to max_length
     """
 
     # Add an extra state and action to the dynamics
     t_mat2 = np.pad(env.t_mat, (0, 1), mode="constant")
     p0s2 = np.pad(env.p0s, (0, 1), mode="constant")
     terminal_state_mask2 = np.pad(env.terminal_state_mask, (0, 1), mode="constant")
+    states2 = np.arange(t_mat2.shape[0])
+    actions2 = np.arange(t_mat2.shape[1])
 
     state_rewards2 = None
     state_action_rewards2 = None
@@ -84,6 +90,8 @@ def pad_terminal_mdp(env):
         state_action_state_rewards2[:, -1, -1] = 0
 
     # Overwrite environment properties
+    env._states = states2
+    env._actions = actions2
     env._t_mat = t_mat2
     env._p0s = p0s2
     env._terminal_state_mask = terminal_state_mask2
@@ -102,7 +110,25 @@ def pad_terminal_mdp(env):
     if env.state_action_state_rewards is not None:
         env._state_action_state_rewards = state_action_state_rewards2
 
-    return env
+    # Finally, pad the trajectories
+
+    # Measure the length of the rollouts
+    r_len = [len(r) for r in rollouts]
+    max_length = max(r_len)
+
+    _rollouts = []
+    dummy_state = t_mat2.shape[0] - 1
+    dummy_action = t_mat2.shape[1] - 1
+    for r in rollouts:
+        if len(r) < max_length:
+            s, _ = r[-1]
+            r[-1] = (s, dummy_action)
+            while len(r) != max_length - 1:
+                r.append((dummy_state, dummy_action))
+            r.append((dummy_state, None))
+        _rollouts.append(r)
+
+    return env, _rollouts
 
 
 def discrete2explicit(EnvClass, env, *, gamma=1.0):
