@@ -137,6 +137,19 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
                 env._t_mat[s1, a, s2] += prob
                 if done:
                     env._terminal_state_mask[s2] = 1.0
+
+    # Sanity check - is the transition matrix valid
+    for s1 in env._states:
+        for a in env._actions:
+            transition_prob = np.sum(env._t_mat[s1, a, :])
+            if transition_prob < 1.0:
+                warnings.warn(
+                    "This environment has inconsistent dynamics - normalizing state-action {}-{}!".format(
+                        s1, a
+                    )
+                )
+            env._t_mat[s1, a, :] /= transition_prob
+
     setattr(EnvClass, "t_mat", property(lambda self: self._t_mat))
     setattr(
         EnvClass,
