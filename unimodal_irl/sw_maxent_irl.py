@@ -554,7 +554,14 @@ nll_sas._call_count = 0
 
 
 def maxent_irl(
-    rollouts, env, rs=True, rsa=False, rsas=False, rbound=(-1.0, 1.0), verbose=False,
+    rollouts,
+    env,
+    rs=True,
+    rsa=False,
+    rsas=False,
+    rbound=(-1.0, 1.0),
+    with_dummy_state=False,
+    verbose=False,
 ):
     """Maximum Entropy IRL
     
@@ -566,6 +573,8 @@ def maxent_irl(
         rsa (bool): Optimize for state-action rewards?
         rsas (bool): Optimize for state-action-state rewards?
         rbound (float): Minimum and maximum reward weight values
+        with_dummy_state (bool): Indicates if the MDP has been padded to include a dummy
+            state
         verbose (bool): Extra logging
     
     Returns:
