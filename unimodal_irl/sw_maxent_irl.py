@@ -574,12 +574,10 @@ def maxent_irl(
     if verbose:
         print("Max path length: {}".format(max_path_length))
 
-    with_dummy_state = False
-    if min_path_length != max_path_length:
-        warnings.warn("Paths are of unequal lengths - padding environment")
-        env = pad_terminal_mdp(env)
-        raise NotImplementedError("Need to add dummy states, actions to paths")
-        with_dummy_state = True
+    # Detect if the env should have been padded
+    assert (
+        min_path_length == max_path_length
+    ), "Paths are of unequal lengths - please ensure the environment is padded before continuing"
 
     # Find discounted feature expectations
     phibar_s = np.zeros(env.t_mat.shape[0])
