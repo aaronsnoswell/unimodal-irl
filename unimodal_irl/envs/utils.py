@@ -220,6 +220,7 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
     if max(num_rewards_per_state) == 1:
         # This MDP allows for consistent state-only rewards
         env._state_rewards = np.array([_rs[s][0] for s in env._states])
+        print("MDP is consistent with state rewards only")
     elif max(num_rewards_per_state_action) == 1:
         # This MDP allows for consistent state-action rewards
         env._state_action_rewards = np.zeros((env.nS, env.nA))
@@ -227,11 +228,13 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
             if env._terminal_state_mask[s1]:
                 continue
             env._state_action_rewards[s1, a] = _rsa[(s1, a)][0]
+        print("MDP is consistent with state-action rewards only")
     else:
         # This MDP requires state-action-state rewards
         assert (
             max(num_rewards_per_state_action_state) == 1
         ), "MDP rewards are stochastic and can't be represented by a linear reward function"
+        print("MDP is consistent with state-action-state rewards only")
         env._state_action_state_rewards = np.zeros((env.nS, env.nA, env.nS))
         for s1, a, s2 in it.product(env._states, env._actions, env._states):
             if env._terminal_state_mask[s1]:

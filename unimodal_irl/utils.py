@@ -41,10 +41,11 @@ def get_rollouts(env, policy, num_rollouts, *, max_episode_length=None, verbose=
             if done:
                 break
 
-            if timestep == max_episode_length - 2:
-                if verbose:
-                    print("Stopping after reaching maximum episode length")
-                break
+            if max_episode_length is not None:
+                if timestep == max_episode_length - 2:
+                    if verbose:
+                        print("Stopping after reaching maximum episode length")
+                    break
 
         rollout.append((s, None))
         rollouts.append(rollout)
