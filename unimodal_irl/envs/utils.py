@@ -4,9 +4,7 @@ import copy
 import warnings
 import numpy as np
 import itertools as it
-from types import MethodType
 
-import gym
 from gym import spaces
 
 
@@ -50,6 +48,8 @@ def pad_terminal_mdp(env, rollouts):
             state and action so that it has no terminal states.
         (list): List of rollouts, padded to max_length
     """
+
+    env = copy.deepcopy(env)
 
     # Add an extra state and action to the dynamics
     t_mat2 = np.pad(env.t_mat, (0, 1), mode="constant")
@@ -131,28 +131,18 @@ def pad_terminal_mdp(env, rollouts):
     return env, _rollouts
 
 
-def discrete2explicit(EnvClass, env, *, gamma=1.0):
-    """Make a DiscreteEnv compliant with IExplicitEnv
+def discrete2explicit(env, *, gamma=1.0):
+    """Adds IExplicitEnv protected properties to a DiscreteEnv instance
     
     Args:
-        EnvClass (class): Class of the environment we are modifying
         env (gym.envs.toy_text.discrete.DiscreteEnv): Environment to update
         
         gamma (float): Discount factor to assign
-    
-    Returns:
-        (gym.Env): A gym environment that is compatible with IExplicitEnv
     """
 
-    # Work with a copy, not the original
-    env = copy.deepcopy(env)
-
     env._states = np.arange(env.nS)
-    setattr(EnvClass, "states", property(lambda self: self._states))
     env._actions = np.arange(env.nA)
-    setattr(EnvClass, "actions", property(lambda self: self._actions))
     env._p0s = np.array(env.isd)
-    setattr(EnvClass, "p0s", property(lambda self: self._p0s))
 
     # Build transition dynamics
     env._t_mat = np.zeros((env.nS, env.nA, env.nS))
@@ -176,20 +166,10 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
                 )
             env._t_mat[s1, a, :] /= transition_prob
 
-    setattr(EnvClass, "t_mat", property(lambda self: self._t_mat))
-    setattr(
-        EnvClass,
-        "terminal_state_mask",
-        property(lambda self: self._terminal_state_mask),
-    )
-
     env._parents, env._children = compute_parents_children(
         env._t_mat, env._terminal_state_mask
     )
-    setattr(EnvClass, "parents", property(lambda self: self._parents))
-    setattr(EnvClass, "children", property(lambda self: self._children))
     env._gamma = gamma
-    setattr(EnvClass, "gamma", property(lambda self: self._gamma))
 
     env._state_rewards = None
     env._state_action_rewards = None
@@ -240,17 +220,3 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
             if env._terminal_state_mask[s1]:
                 continue
             env._state_action_state_rewards[s1, a, s2] = _rsas[(s1, a, s2)][0]
-
-    setattr(EnvClass, "state_rewards", property(lambda self: self._state_rewards))
-    setattr(
-        EnvClass,
-        "state_action_rewards",
-        property(lambda self: self._state_action_rewards),
-    )
-    setattr(
-        EnvClass,
-        "state_action_state_rewards",
-        property(lambda self: self._state_action_state_rewards),
-    )
-
-    return env
