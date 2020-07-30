@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 
 # Test fixtures
-from unimodal_irl.envs.linear_mdp import LinearMDPEnv
+from unimodal_irl.envs.explicit_linear import LinearMDPEnv
 from unimodal_irl.envs.utils import pad_terminal_mdp
 
 # Methods to test
