@@ -13,10 +13,12 @@ import interface
 from gym.envs.toy_text.nchain import NChainEnv
 
 from unimodal_irl.envs.utils import compute_parents_children
-from unimodal_irl.envs.explicit_env import IExplicitEnv
+from unimodal_irl.envs.explicit_env import IExplicitEnv, ExplicitEnvGetters
 
 
-class ExplicitNChainEnv(NChainEnv, interface.implements(IExplicitEnv)):
+class ExplicitNChainEnv(
+    NChainEnv, ExplicitEnvGetters, interface.implements(IExplicitEnv)
+):
     """Explicit n-Chain Environment"""
 
     # Action constants
@@ -68,50 +70,6 @@ class ExplicitNChainEnv(NChainEnv, interface.implements(IExplicitEnv)):
         self._parents, self._children = compute_parents_children(
             self._t_mat, self._terminal_state_mask
         )
-
-    @property
-    def states(self):
-        return self._states
-
-    @property
-    def actions(self):
-        return self._actions
-
-    @property
-    def t_mat(self):
-        return self._t_mat
-
-    @property
-    def p0s(self):
-        return self._p0s
-
-    @property
-    def terminal_state_mask(self):
-        return self._terminal_state_mask
-
-    @property
-    def parents(self):
-        return self._parents
-
-    @property
-    def children(self):
-        return self._children
-
-    @property
-    def gamma(self):
-        return self._gamma
-
-    @property
-    def state_rewards(self):
-        return self._state_rewards
-
-    @property
-    def state_action_rewards(self):
-        return self._state_action_rewards
-
-    @property
-    def state_action_state_rewards(self):
-        return self._state_action_state_rewards
 
 
 def demo():
