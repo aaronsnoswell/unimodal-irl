@@ -201,7 +201,7 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
         ), "MDP rewards are stochastic and can't be represented by a linear reward function"
         env._state_action_state_rewards = np.zeros((env.nS, env.nA, env.nS))
         for s1, a, s2 in it.product(env._states, env._actions, env._states):
-            env._state_action_rewards[s1, a, s2] = _rsas[(s1, a, s2)][0]
+            env._state_action_state_rewards[s1, a, s2] = _rsas[(s1, a, s2)][0]
 
     setattr(EnvClass, "state_rewards", property(lambda self: self._state_rewards))
     setattr(
