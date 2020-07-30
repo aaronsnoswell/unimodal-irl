@@ -498,7 +498,9 @@ def env_solve(env, L, with_dummy_state=True):
 
 
 def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
+    nll_s._call_count += 1
     if verbose:
+        print("Obj#{}".format(nll_s._call_count))
         print(theta_s)
     env._state_rewards = theta_s
     with np.errstate(over="raise"):
@@ -510,8 +512,13 @@ def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
     return nll, grad
 
 
+nll_s._call_count = 0
+
+
 def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose):
+    nll_sa._call_count += 1
     if verbose:
+        print("Obj#{}".format(nll_sa._call_count))
         print(theta_sa)
     env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
     with np.errstate(over="raise"):
@@ -523,8 +530,13 @@ def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose)
     return nll, grad
 
 
+nll_sa._call_count = 0
+
+
 def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbose):
+    nll_sas._call_count += 1
     if verbose:
+        print("Obj#{}".format(nll_sas._call_count))
         print(theta_sas)
     env._state_action_state_rewards = theta_sas.reshape(
         (len(env.states), len(env.actions), len(env.states))
@@ -536,6 +548,9 @@ def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbo
         nll = Z_log - theta_sas @ phibar_sas.flatten()
         grad = (np.sum(np.exp(ptsas_log), axis=3) - phibar_sas).flatten()
     return nll, grad
+
+
+nll_sas._call_count = 0
 
 
 def maxent_irl(
@@ -598,6 +613,10 @@ def maxent_irl(
                 s2 = r[t + 1][0]
                 phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
 
+    # Reset objective function call counts
+    nll_s._call_count = 0
+    nll_sa._call_count = 0
+    nll_sas._call_count = 0
     theta_s = None
     if rs:
         if verbose:
