@@ -134,7 +134,7 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
     for s1 in env._states:
         for a in env._actions:
             for prob, s2, r, done in env.P[s1][a]:
-                env._t_mat[s1, a, s2] = prob
+                env._t_mat[s1, a, s2] += prob
                 if done:
                     env._terminal_state_mask[s2] = 1.0
     setattr(EnvClass, "t_mat", property(lambda self: self._t_mat))
