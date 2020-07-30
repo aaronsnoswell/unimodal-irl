@@ -174,6 +174,11 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
     _rsa = {sa: set() for sa in it.product(env._states, env._actions)}
     _rsas = {sas: set() for sas in it.product(env._states, env._actions, env._states)}
     for s1 in env._states:
+
+        if env._terminal_state_mask[s1]:
+            # Don't consider transitions from terminal states as they are invalid
+            continue
+
         for a in env._actions:
             for prob, s2, r, done in env.P[s1][a]:
                 _rs[s2].add(r)
@@ -193,6 +198,8 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
         # This MDP allows for consistent state-action rewards
         env._state_action_rewards = np.zeros((env.nS, env.nA))
         for s1, a in it.product(env._states, env._actions):
+            if env._terminal_state_mask[s1]:
+                continue
             env._state_action_rewards[s1, a] = _rsa[(s1, a)][0]
     else:
         # This MDP requires state-action-state rewards
@@ -201,6 +208,8 @@ def discrete2explicit(EnvClass, env, *, gamma=1.0):
         ), "MDP rewards are stochastic and can't be represented by a linear reward function"
         env._state_action_state_rewards = np.zeros((env.nS, env.nA, env.nS))
         for s1, a, s2 in it.product(env._states, env._actions, env._states):
+            if env._terminal_state_mask[s1]:
+                continue
             env._state_action_state_rewards[s1, a, s2] = _rsas[(s1, a, s2)][0]
 
     setattr(EnvClass, "state_rewards", property(lambda self: self._state_rewards))
