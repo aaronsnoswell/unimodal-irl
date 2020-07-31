@@ -6,7 +6,7 @@ import numpy as np
 
 
 from gym import spaces
-from unimodal_irl.envs.explicit_env import IExplicitEnv
+from unimodal_irl.envs.explicit import IExplicitEnv
 from unimodal_irl.envs.utils import compute_parents_children
 
 

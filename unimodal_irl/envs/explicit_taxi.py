@@ -13,7 +13,7 @@ import interface
 from gym.envs.toy_text.taxi import TaxiEnv
 
 from unimodal_irl.envs.utils import discrete2explicit
-from unimodal_irl.envs.explicit_env import IExplicitEnv, ExplicitEnvGetters
+from unimodal_irl.envs.explicit import IExplicitEnv, ExplicitEnvGetters
 
 
 class ExplicitTaxiEnv(TaxiEnv, ExplicitEnvGetters, interface.implements(IExplicitEnv)):

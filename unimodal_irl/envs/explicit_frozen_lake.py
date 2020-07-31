@@ -12,7 +12,7 @@ import interface
 from gym.envs.toy_text.frozen_lake import FrozenLakeEnv
 
 from unimodal_irl.envs.utils import discrete2explicit
-from unimodal_irl.envs.explicit_env import IExplicitEnv, ExplicitEnvGetters
+from unimodal_irl.envs.explicit import IExplicitEnv, ExplicitEnvGetters
 
 
 class ExplicitFrozenLakeEnv(

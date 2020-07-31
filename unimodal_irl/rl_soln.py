@@ -11,7 +11,7 @@ def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     """Value iteration to find the optimal value function
     
     Args:
-        env (.envs.explicit_env.IExplicitEnv) Explicit Gym environment
+        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
         
         eps (float): Value convergence tolerance
         verbose (bool): Extra logging
@@ -83,7 +83,7 @@ def q_from_v(v_star, env):
     
     Args:
         v_star (numpy array): |S| vector of optimal state values
-        env (.envs.explicit_env.IExplicitEnv) Explicit Gym environment
+        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
     
     Returns:
         (numpy array): |S|x|A| array of optimal state-action values
@@ -166,7 +166,7 @@ def policy_evaluation(env, policy, tolerance=1e-6):
     """Determine the value function of a given deterministic policy
     
     Args:
-        env (.envs.explicit_env.IExplicitEnv) Explicit Gym environment
+        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
         policy (object): Policy object providing a deterministic .predict(s) method to
             match the stable-baselines policy API
         

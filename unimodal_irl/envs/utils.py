@@ -39,12 +39,12 @@ def pad_terminal_mdp(env, *, rollouts=None):
     upper length.
     
     Args:
-        env (.explicit_env.IExplicitEnv) Explicit MDP environment
+        env (.explicit.IExplicitEnv) Explicit MDP environment
         
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] rollouts to pad
     
     Returns:
-        (.explicit_env.IExplicitEnv) Explicit MDP environment, padded with a dummy
+        (.explicit.IExplicitEnv) Explicit MDP environment, padded with a dummy
             state and action so that it has no terminal states.
         (list): List of rollouts, padded to max_length
     """

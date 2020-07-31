@@ -13,7 +13,7 @@ import interface
 from gym.envs.toy_text.nchain import NChainEnv
 
 from unimodal_irl.envs.utils import compute_parents_children
-from unimodal_irl.envs.explicit_env import IExplicitEnv, ExplicitEnvGetters
+from unimodal_irl.envs.explicit import IExplicitEnv, ExplicitEnvGetters
 
 
 class ExplicitNChainEnv(

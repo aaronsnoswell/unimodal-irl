@@ -245,7 +245,7 @@ def env_solve(env, L, with_dummy_state=True):
     """Convenience method to solve an environment for marginals
     
     Args:
-        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        env (.envs.explicit.IExplicitEnv) Environment to solve
         L (int): Max path length
         with_dummy_state (bool): Indicates if the environment has been padded with a
             dummy state and action, or not
@@ -381,7 +381,7 @@ def maxent_irl(
     
     Args:
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
-        env (.envs.explicit_env.IExplicitEnv) Environment to solve
+        env (.envs.explicit.IExplicitEnv) Environment to solve
         
         rs (bool): Optimize for state rewards?
         rsa (bool): Optimize for state-action rewards?
