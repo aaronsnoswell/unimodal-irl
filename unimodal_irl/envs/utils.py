@@ -122,13 +122,14 @@ def pad_terminal_mdp(env, *, rollouts=None):
         dummy_state = t_mat2.shape[0] - 1
         dummy_action = t_mat2.shape[1] - 1
         for r in rollouts:
-            if len(r) < max_length:
-                s, _ = r[-1]
-                r[-1] = (s, dummy_action)
-                while len(r) != max_length - 1:
-                    r.append((dummy_state, dummy_action))
-                r.append((dummy_state, None))
-            _rollouts.append(r)
+            _r = r.copy()
+            if len(_r) < max_length:
+                s, _ = _r[-1]
+                _r[-1] = (s, dummy_action)
+                while len(_r) != max_length - 1:
+                    _r.append((dummy_state, dummy_action))
+                _r.append((dummy_state, None))
+            _rollouts.append(_r)
         return env, _rollouts
 
 
