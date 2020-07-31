@@ -366,7 +366,7 @@ def nll_sas(
 nll_sas._call_count = 0
 
 
-def maxent_irl(
+def sw_maxent_irl(
     rollouts,
     env,
     rs=False,
