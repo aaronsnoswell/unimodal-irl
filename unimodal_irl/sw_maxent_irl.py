@@ -289,7 +289,9 @@ def env_solve(env, L, with_dummy_state=True):
     return pts_log, ptsa_log, ptsas_log, Z_theta_log
 
 
-def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
+def nll_s(
+    theta_s, env, max_path_length, with_dummy_state, phibar_s, rescale_grad, verbose
+):
     nll_s._call_count += 1
     if verbose:
         print("Obj#{}".format(nll_s._call_count))
@@ -301,6 +303,10 @@ def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
         )
         nll = Z_log - theta_s @ phibar_s
         grad = np.sum(np.exp(pts_log), axis=1) - phibar_s
+        if rescale_grad:
+            if verbose:
+                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
+            grad /= np.linalg.norm(grad)
     return nll, grad
 
 
@@ -308,7 +314,9 @@ def nll_s(theta_s, env, max_path_length, with_dummy_state, phibar_s, verbose):
 nll_s._call_count = 0
 
 
-def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose):
+def nll_sa(
+    theta_sa, env, max_path_length, with_dummy_state, phibar_sa, rescale_grad, verbose
+):
     nll_sa._call_count += 1
     if verbose:
         print("Obj#{}".format(nll_sa._call_count))
@@ -320,6 +328,10 @@ def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose)
         )
         nll = Z_log - theta_sa @ phibar_sa.flatten()
         grad = (np.sum(np.exp(ptsa_log), axis=2) - phibar_sa).flatten()
+        if rescale_grad:
+            if verbose:
+                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
+            grad /= np.linalg.norm(grad)
     return nll, grad
 
 
@@ -327,7 +339,9 @@ def nll_sa(theta_sa, env, max_path_length, with_dummy_state, phibar_sa, verbose)
 nll_sa._call_count = 0
 
 
-def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbose):
+def nll_sas(
+    theta_sas, env, max_path_length, with_dummy_state, phibar_sas, rescale_grad, verbose
+):
     nll_sas._call_count += 1
     if verbose:
         print("Obj#{}".format(nll_sas._call_count))
@@ -341,6 +355,10 @@ def nll_sas(theta_sas, env, max_path_length, with_dummy_state, phibar_sas, verbo
         )
         nll = Z_log - theta_sas @ phibar_sas.flatten()
         grad = (np.sum(np.exp(ptsas_log), axis=3) - phibar_sas).flatten()
+        if rescale_grad:
+            if verbose:
+                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
+            grad /= np.linalg.norm(grad)
     return nll, grad
 
 
@@ -356,6 +374,7 @@ def maxent_irl(
     rsas=False,
     rbound=(-1.0, 1.0),
     with_dummy_state=False,
+    rescale_grad=False,
     verbose=False,
 ):
     """Maximum Entropy IRL
@@ -370,6 +389,8 @@ def maxent_irl(
         rbound (float): Minimum and maximum reward weight values
         with_dummy_state (bool): Indicates if the MDP has been padded to include a dummy
             state
+        rescale_grad (bool): If true, re-scale the gradient. This can help prevent error
+            message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B for some problems.
         verbose (bool): Extra logging
     
     Returns:
@@ -414,7 +435,14 @@ def maxent_irl(
         res = minimize(
             nll_s,
             np.zeros(num_states),
-            args=(env, max_path_length, with_dummy_state, phibar_s, verbose),
+            args=(
+                env,
+                max_path_length,
+                with_dummy_state,
+                phibar_s,
+                rescale_grad,
+                verbose,
+            ),
             method="L-BFGS-B",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states)),
@@ -436,7 +464,14 @@ def maxent_irl(
         res = minimize(
             nll_sa,
             np.zeros(num_states * num_actions),
-            args=(env, max_path_length, with_dummy_state, phibar_sa, verbose),
+            args=(
+                env,
+                max_path_length,
+                with_dummy_state,
+                phibar_sa,
+                rescale_grad,
+                verbose,
+            ),
             method="L-BFGS-B",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions)),
@@ -458,7 +493,14 @@ def maxent_irl(
         res = minimize(
             nll_sas,
             np.zeros(num_states * num_actions * num_states),
-            args=(env, max_path_length, with_dummy_state, phibar_sas, verbose),
+            args=(
+                env,
+                max_path_length,
+                with_dummy_state,
+                phibar_sas,
+                rescale_grad,
+                verbose,
+            ),
             method="L-BFGS-B",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
