@@ -71,6 +71,12 @@ class ExplicitNChainEnv(
             self._t_mat, self._terminal_state_mask
         )
 
+        # Update reward range
+        self.reward_range = (
+            np.min(self._state_action_rewards.flatten()),
+            np.max(self._state_action_rewards.flatten()),
+        )
+
 
 def demo():
     """Demo function"""

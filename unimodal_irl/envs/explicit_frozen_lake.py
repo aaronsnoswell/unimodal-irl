@@ -20,6 +20,8 @@ class ExplicitFrozenLakeEnv(
 ):
     """Explicit FrozenLake Environment"""
 
+    reward_range = (0.0, 1.0)
+
     def __init__(self, *args, **kwargs):
         """C-tor"""
 

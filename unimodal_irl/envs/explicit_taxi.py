@@ -19,6 +19,8 @@ from unimodal_irl.envs.explicit_env import IExplicitEnv, ExplicitEnvGetters
 class ExplicitTaxiEnv(TaxiEnv, ExplicitEnvGetters, interface.implements(IExplicitEnv)):
     """Explicit Taxi Environment"""
 
+    reward_range = (-10.0, 20.0)
+
     def __init__(self, *args, **kwargs):
         """C-tor"""
 
