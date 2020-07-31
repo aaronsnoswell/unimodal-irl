@@ -175,7 +175,7 @@ def policy_evaluation(env, policy, tolerance=1e-6):
     Returns:
         (numpy array): |S| state value vector
     """
-    v_pi = np.zeros_like(env.states)
+    v_pi = np.zeros_like(env.states, dtype=float)
 
     # Prepare linear reward arrays
     _state_rewards = env.state_rewards
