@@ -21,6 +21,8 @@ class ExplicitTaxiEnv(TaxiEnv, ExplicitEnvGetters, interface.implements(IExplici
 
     reward_range = (-10.0, 20.0)
 
+    human_actions = ["↓", "↑", "←", "→", "P", "D"]
+
     def __init__(self, *args, **kwargs):
         """C-tor"""
 

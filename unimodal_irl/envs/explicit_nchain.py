@@ -21,6 +21,8 @@ class ExplicitNChainEnv(
 ):
     """Explicit n-Chain Environment"""
 
+    human_actions = ["→", "←"]
+
     # Action constants
     A_FORWARD = 0
     A_BACKWARD = 1

@@ -22,6 +22,8 @@ class ExplicitFrozenLakeEnv(
 
     reward_range = (0.0, 1.0)
 
+    human_actions = ["←", "↓", "→", "↑"]
+
     def __init__(self, *args, **kwargs):
         """C-tor"""
 
