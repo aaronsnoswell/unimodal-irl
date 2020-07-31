@@ -195,7 +195,7 @@ def policy_evaluation(env, policy, tolerance=1e-6):
             v = v_pi[s1]
             v_pi[s1] = np.sum(
                 [
-                    (policy.predict(s1) == a)
+                    float(policy.predict(s1)[0] == a)
                     * np.sum(
                         [
                             env.t_mat[s1, a, s2]
