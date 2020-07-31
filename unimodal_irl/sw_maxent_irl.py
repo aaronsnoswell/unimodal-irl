@@ -2,6 +2,7 @@
 
 import copy
 import numpy as np
+from numba import jit
 from scipy.optimize import minimize
 
 from unimodal_irl.utils import empirical_feature_expectations
@@ -69,6 +70,67 @@ def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas
     return alpha
 
 
+@jit(nopython=True)
+def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
+    """Compute backward message passing variable in log-space
+    
+    Args:
+        p0s (numpy array): Starting state probabilities
+        L (int): Maximum path length
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        
+        gamma (float): Discount factor
+        rs (numpy array): |S| array of linear state reward weights
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
+        rsas (numpy array): Linear state-action-state reward weights
+    
+    Returns:
+        (numpy array): |S|xL array of backward message values in log space
+    """
+
+    if rs is None:
+        rs = np.zeros(t_mat.shape[0])
+    if rsa is None:
+        rsa = np.zeros(t_mat.shape[0:2])
+    if rsas is None:
+        rsas = np.zeros(t_mat.shape[0:3])
+
+    alpha = np.zeros((t_mat.shape[0], L))
+    alpha[:, 0] = np.log(p0s) + rs
+    for t in range(L - 1):
+        for s2 in range(t_mat.shape[2]):
+            # Find maximum value among all parents of s2
+            m_t = _NINF
+            for s1 in range(t_mat.shape[0]):
+                for a in range(t_mat.shape[1]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(
+                        m_t,
+                        (
+                            alpha[s1, t]
+                            + np.log(t_mat[s1, a, s2])
+                            + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                        ),
+                    )
+            m_t += (gamma ** (t + 1)) * rs[s2]
+
+            # Compute next column of alpha in log-space
+            for s1 in range(t_mat.shape[0]):
+                for a in range(t_mat.shape[1]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    alpha[s2, t + 1] += t_mat[s1, a, s2] * np.exp(
+                        alpha[s1, t]
+                        + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                        + (gamma ** (t + 1)) * rs[s2]
+                        - m_t
+                    )
+            alpha[s2, t + 1] = m_t + np.log(alpha[s2, t + 1])
+
+    return alpha
+
+
 def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute forward message passing variable in log space
     
@@ -117,6 +179,68 @@ def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None
                     + beta[s2, t]
                     - m_t
                 )
+            beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
+
+    return beta
+
+
+@jit(nopython=True)
+def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
+    """Compute forward message passing variable in log space
+    
+    Args:
+        L (int): Maximum path length
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        children (dict): Dictionary mapping states to (a, s') child tuples
+        
+        gamma (float): Discount factor
+        rs (numpy array): Linear state reward weights
+        rsa (numpy array): Linear state-action reward weights
+        rsas (numpy array): Linear state-action-state reward weights
+    
+    Returns:
+        (numpy array): |S| x L array of forward message values in log space
+    """
+
+    if rs is None:
+        rs = np.zeros(t_mat.shape[0])
+    if rsa is None:
+        rsa = np.zeros(t_mat.shape[0:2])
+    if rsas is None:
+        rsas = np.zeros(t_mat.shape[0:3])
+
+    beta = np.zeros((t_mat.shape[0], L))
+    beta[:, 0] = gamma ** (L - 1) * rs
+    for t in range(L - 1):
+        for s1 in range(t_mat.shape[0]):
+            # Find maximum value among children of s1
+            m_t = _NINF
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(
+                        m_t,
+                        (
+                            np.log(t_mat[s1, a, s2])
+                            + gamma ** (L - (t + 1) - 1)
+                            * (rsa[s1, a] + rsas[s1, a, s2])
+                            + beta[s2, t]
+                        ),
+                    )
+            m_t += gamma ** (L - (t + 1) - 1) * rs[s1]
+
+            # Compute next column of beta in log-space
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    beta[s1, t + 1] += t_mat[s1, a, s2] * np.exp(
+                        gamma ** (L - (t + 1) - 1)
+                        * (rs[s1] + rsa[s1, a] + rsas[s1, a, s2])
+                        + beta[s2, t]
+                        - m_t
+                    )
             beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
 
     return beta
@@ -195,10 +319,98 @@ def marginals_log(
                 for a in range(t_mat.shape[1]):
                     for s2 in range(t_mat.shape[2]):
                         if t_mat[s1, a, s2] != 0:
-                            """We don't iterate over valid children for efficiency reasons
-                            therefore we manually skip invalid children to avoid
-                            log divide-by-zero errors
-                            """
+                            m_t = max(
+                                m_t,
+                                (
+                                    np.log(t_mat[s1, a, s2])
+                                    + gamma ** ((t + 1) - 1)
+                                    * (rsa[s1, a] + rsas[s1, a, s2])
+                                    + beta_log[s2, L - (t + 1) - 1]
+                                ),
+                            )
+                m_t += alpha_log[s1, t] - Z_theta_log
+
+                # Compute state marginals in log space
+                for a in range(t_mat.shape[1]):
+                    for s2 in range(t_mat.shape[2]):
+                        contrib = t_mat[s1, a, s2] * np.exp(
+                            alpha_log[s1, t]
+                            + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                            + beta_log[s2, L - (t + 1) - 1]
+                            - Z_theta_log
+                            - m_t
+                        )
+                        pts[s1, t] += contrib
+                        ptsa[s1, a, t] += contrib
+                        if contrib == 0:
+                            ptsas[s1, a, s2, t] = -np.inf
+                        else:
+                            ptsas[s1, a, s2, t] = m_t + np.log(contrib)
+                    if ptsa[s1, a, t] == 0:
+                        ptsa[s1, a, t] = -np.inf
+                    else:
+                        ptsa[s1, a, t] = m_t + np.log(ptsa[s1, a, t])
+                if pts[s1, t] == 0:
+                    pts[s1, t] = -np.inf
+                else:
+                    pts[s1, t] = m_t + np.log(pts[s1, t])
+
+    # Compute final column of pts
+    pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
+
+    return pts, ptsa, ptsas
+
+
+@jit(nopython=True)
+def nb_marginals_log(
+    L, t_mat, alpha_log, beta_log, Z_theta_log, gamma=1.0, rsa=None, rsas=None
+):
+    """Compute marginal terms
+    
+    Args:
+        L (int): Maximum path length
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        alpha_log (numpy array): |S|xL array of backward message values in log space
+        beta_log (numpy array): |S|xL array of forward message values in log space
+        Z_theta_log (float): Partition value in log space
+        
+        gamma (float): Discount factor
+        rsa (numpy array): |S|x|A| array of linear state-action reward weights
+        rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward
+            weights
+    
+    Returns:
+        (numpy array): |S|xL array of state marginals in log space
+        (numpy array): |S|x|A|xL array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
+    """
+
+    if rsa is None:
+        rsa = np.zeros((t_mat.shape[0], t_mat.shape[1]))
+    if rsas is None:
+        rsas = np.zeros((t_mat.shape[0], t_mat.shape[1], t_mat.shape[2]))
+
+    pts = np.zeros((t_mat.shape[0], L))
+    ptsa = np.zeros((t_mat.shape[0], t_mat.shape[1], L - 1))
+    ptsas = np.zeros((t_mat.shape[0], t_mat.shape[1], t_mat.shape[2], L - 1))
+
+    for t in range(L - 1):
+
+        for s1 in range(t_mat.shape[0]):
+
+            # if np.isneginf(alpha_log[s1, t]):
+            if np.exp(alpha_log[s1, t]) == 0:
+                # Catch edge case where the backward message value is zero to prevent
+                # floating point error
+                pts[s1, t] = -np.inf
+                ptsa[s1, :, t] = -np.inf
+                ptsas[s1, :, :, t] = -np.inf
+            else:
+                # Compute max value
+                m_t = _NINF
+                for a in range(t_mat.shape[1]):
+                    for s2 in range(t_mat.shape[2]):
+                        if t_mat[s1, a, s2] != 0:
                             m_t = max(
                                 m_t,
                                 (
@@ -256,27 +468,26 @@ def env_solve(env, L, with_dummy_state=True):
         (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
         (float): Partition value in log space
     """
-    alpha_log = backward_pass_log(
+
+    alpha_log = nb_backward_pass_log(
         env.p0s,
         L,
         env.t_mat,
-        env.parents,
         gamma=env.gamma,
         rs=env.state_rewards,
         rsa=env.state_action_rewards,
         rsas=env.state_action_state_rewards,
     )
-    beta_log = forward_pass_log(
+    beta_log = nb_forward_pass_log(
         L,
         env.t_mat,
-        env.children,
         gamma=env.gamma,
         rs=env.state_rewards,
         rsa=env.state_action_rewards,
         rsas=env.state_action_state_rewards,
     )
     Z_theta_log = partition_log(L, alpha_log, with_dummy_state=with_dummy_state)
-    pts_log, ptsa_log, ptsas_log = marginals_log(
+    pts_log, ptsa_log, ptsas_log = nb_marginals_log(
         L,
         env.t_mat,
         alpha_log,
