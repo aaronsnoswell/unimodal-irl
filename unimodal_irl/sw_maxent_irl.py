@@ -171,9 +171,9 @@ def marginals_log(
     """
 
     if rsa is None:
-        rsa = np.zeros(np.array(t_mat.shape[0:2]))
+        rsa = np.zeros((t_mat.shape[0], t_mat.shape[1]))
     if rsas is None:
-        rsas = np.zeros(np.array(t_mat.shape[0:3]))
+        rsas = np.zeros((t_mat.shape[0], t_mat.shape[1], t_mat.shape[2]))
 
     pts = np.zeros((t_mat.shape[0], L))
     ptsa = np.zeros((t_mat.shape[0], t_mat.shape[1], L - 1))
