@@ -4,6 +4,9 @@ import copy
 import numpy as np
 from scipy.optimize import minimize
 
+from unimodal_irl.utils import empirical_feature_expectations
+
+
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
 _NINF = np.finfo(np.float64).min
 
@@ -398,23 +401,7 @@ def maxent_irl(
     ), "Paths are of unequal lengths - please ensure the environment is padded before continuing"
 
     # Find discounted feature expectations
-    phibar_s = np.zeros(env.t_mat.shape[0])
-    phibar_sa = np.zeros(env.t_mat.shape[0 : 1 + 1])
-    phibar_sas = np.zeros(env.t_mat.shape)
-    for r in rollouts:
-
-        if env.state_rewards is not None:
-            for t, (s1, _) in enumerate(r):
-                phibar_s[s1] += (env.gamma ** t) * 1
-
-        if env.state_action_rewards is not None:
-            for t, (s1, a) in enumerate(r[:-1]):
-                phibar_sa[s1, a] += (env.gamma ** t) * 1
-
-        if env.state_action_state_rewards is not None:
-            for t, (s1, a) in enumerate(r[:-1]):
-                s2 = r[t + 1][0]
-                phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
+    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
 
     # Reset objective function call counts
     nll_s._call_count = 0
