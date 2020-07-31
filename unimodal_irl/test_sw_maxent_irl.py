@@ -9,13 +9,9 @@ from unimodal_irl.envs.utils import pad_terminal_mdp
 
 # Methods to test
 from unimodal_irl.sw_maxent_irl import (
-    backward_pass,
     backward_pass_log,
-    forward_pass,
     forward_pass_log,
-    partition,
     partition_log,
-    marginals,
     marginals_log,
 )
 
@@ -82,254 +78,17 @@ def env_all():
     return env
 
 
-class TestBackward:
-    """Test the backward message passing methods"""
-
-    L = 6
-
-    def test_backward_log_rs(self, env_rs):
-        """Test log-space matches non-log-space w/ state reward function"""
-
-        print("Testing backward message passing log calculation: state rewards")
-        alpha = backward_pass(
-            env_rs.p0s,
-            TestBackward.L,
-            env_rs.t_mat,
-            env_rs.parents,
-            gamma=env_rs.gamma,
-            rs=env_rs.state_rewards,
-        )
-        alpha_log = backward_pass_log(
-            env_rs.p0s,
-            TestBackward.L,
-            env_rs.t_mat,
-            env_rs.parents,
-            gamma=env_rs.gamma,
-            rs=env_rs.state_rewards,
-        )
-        np.testing.assert_array_almost_equal(alpha, np.exp(alpha_log))
-
-    def test_backward_log_rsa(self, env_rsa):
-        """Test log-space matches non-log-space w/ state-action reward function"""
-
-        print("Testing backward message passing log calculation: state-action rewards")
-
-        alpha = backward_pass(
-            env_rsa.p0s,
-            TestBackward.L,
-            env_rsa.t_mat,
-            env_rsa.parents,
-            gamma=env_rsa.gamma,
-            rsa=env_rsa.state_action_rewards,
-        )
-        alpha_log = backward_pass_log(
-            env_rsa.p0s,
-            TestBackward.L,
-            env_rsa.t_mat,
-            env_rsa.parents,
-            gamma=env_rsa.gamma,
-            rsa=env_rsa.state_action_rewards,
-        )
-        np.testing.assert_array_almost_equal(alpha, np.exp(alpha_log))
-
-    def test_backward_log_rsas(self, env_rsas):
-        """Test log-space matches non-log-space w/ state-action-state reward function"""
-
-        print(
-            "Testing backward message passing log calculation: state-action-state rewards"
-        )
-
-        alpha = backward_pass(
-            env_rsas.p0s,
-            TestBackward.L,
-            env_rsas.t_mat,
-            env_rsas.parents,
-            gamma=env_rsas.gamma,
-            rsas=env_rsas.state_action_state_rewards,
-        )
-        alpha_log = backward_pass_log(
-            env_rsas.p0s,
-            TestBackward.L,
-            env_rsas.t_mat,
-            env_rsas.parents,
-            gamma=env_rsas.gamma,
-            rsas=env_rsas.state_action_state_rewards,
-        )
-        np.testing.assert_array_almost_equal(alpha, np.exp(alpha_log))
-
-
-class TestForward:
-    """Test the forward message passing methods"""
-
-    L = 6
-
-    def test_forward_log_rs(self, env_rs):
-        """Test log-space matches non-log-space w/ state reward function"""
-
-        print("Testing forward message passing log calculation: state rewards")
-
-        beta = forward_pass(
-            TestForward.L,
-            env_rs.t_mat,
-            env_rs.children,
-            gamma=env_rs.gamma,
-            rs=env_rs.state_rewards,
-        )
-
-        beta_log = forward_pass_log(
-            TestForward.L,
-            env_rs.t_mat,
-            env_rs.children,
-            gamma=env_rs.gamma,
-            rs=env_rs.state_rewards,
-        )
-        np.testing.assert_array_almost_equal(beta, np.exp(beta_log))
-
-    def test_forward_log_rsa(self, env_rsa):
-        """Test log-space matches non-log-space w/ state-action reward function"""
-
-        print("Testing forward message passing log calculation: state-action rewards")
-
-        beta = forward_pass(
-            TestForward.L,
-            env_rsa.t_mat,
-            env_rsa.children,
-            gamma=env_rsa.gamma,
-            rsa=env_rsa.state_action_rewards,
-        )
-
-        beta_log = forward_pass_log(
-            TestForward.L,
-            env_rsa.t_mat,
-            env_rsa.children,
-            gamma=env_rsa.gamma,
-            rsa=env_rsa.state_action_rewards,
-        )
-        np.testing.assert_array_almost_equal(beta, np.exp(beta_log))
-
-    def test_forward_log_rsas(self, env_rsas):
-        """Test log-space matches non-log-space w/ state-action-state reward function"""
-
-        print(
-            "Testing forward message passing log calculation: state-action-state rewards"
-        )
-
-        beta = forward_pass(
-            TestForward.L,
-            env_rsas.t_mat,
-            env_rsas.children,
-            gamma=env_rsas.gamma,
-            rsas=env_rsas.state_action_state_rewards,
-        )
-
-        beta_log = forward_pass_log(
-            TestForward.L,
-            env_rsas.t_mat,
-            env_rsas.children,
-            gamma=env_rsas.gamma,
-            rsas=env_rsas.state_action_state_rewards,
-        )
-        np.testing.assert_array_almost_equal(beta, np.exp(beta_log))
-
-
-class TestPartition:
-    """Test Partition computation methods"""
-
-    def test_partition_log(self, env_all):
-        """Test log-space matches non-log-space w/ full reward function"""
-
-        print("Testing partition log calculation")
-
-        L = 6
-
-        alpha = backward_pass(
-            env_all.p0s,
-            L,
-            env_all.t_mat,
-            env_all.parents,
-            gamma=env_all.gamma,
-            rs=env_all.state_rewards,
-            rsa=env_all.state_action_rewards,
-            rsas=env_all.state_action_state_rewards,
-        )
-
-        Z_theta = partition(L, alpha)
-        with np.errstate(divide="ignore"):
-            Z_theta_log = partition_log(L, np.log(alpha))
-        np.testing.assert_almost_equal(Z_theta, np.exp(Z_theta_log))
-
-
 class TestMarginals:
     """Test Marginal computations"""
 
     L = 6
 
-    def test_marginals_log(self, env_all):
-        """Test log-space matches non-log-space w/ full reward function"""
-
-        print("Testing marginal log calculation")
-
-        alpha = backward_pass(
-            env_all.p0s,
-            TestMarginals.L,
-            env_all.t_mat,
-            env_all.parents,
-            gamma=env_all.gamma,
-            rs=env_all.state_rewards,
-            rsa=env_all.state_action_rewards,
-            rsas=env_all.state_action_state_rewards,
-        )
-        beta = forward_pass(
-            TestMarginals.L,
-            env_all.t_mat,
-            env_all.children,
-            gamma=env_all.gamma,
-            rs=env_all.state_rewards,
-            rsa=env_all.state_action_rewards,
-            rsas=env_all.state_action_state_rewards,
-        )
-
-        Z_theta = partition(TestMarginals.L, alpha)
-
-        pts, ptsa, ptsas = marginals(
-            TestMarginals.L,
-            env_all.t_mat,
-            alpha,
-            beta,
-            Z_theta,
-            env_all.gamma,
-            rsa=env_all.state_action_rewards,
-            rsas=env_all.state_action_state_rewards,
-        )
-
-        # Suppress possible log(0) warnings
-        with np.errstate(divide="ignore"):
-            alpha_log = np.log(alpha)
-            beta_log = np.log(beta)
-            Z_theta_log = np.log(Z_theta)
-
-        pts_log, ptsa_log, ptsas_log = marginals_log(
-            TestMarginals.L,
-            env_all.t_mat,
-            alpha_log,
-            beta_log,
-            Z_theta_log,
-            env_all.gamma,
-            rsa=env_all.state_action_rewards,
-            rsas=env_all.state_action_state_rewards,
-        )
-
-        np.testing.assert_array_almost_equal(pts, np.exp(pts_log))
-        np.testing.assert_array_almost_equal(ptsa, np.exp(ptsa_log))
-        np.testing.assert_array_almost_equal(ptsas, np.exp(ptsas_log))
-
-    def _get_GT_values(self, linear_mdp_env):
-        """Compute ground truth values for the Linear MDP example
+    def _get_GT_likelihoods(self, linear_mdp_env):
+        """Compute ground truth path likelihoods for the Linear MDP example
         
         These values are computed using manually derived and verified equations
         specific to this example MDP
         """
-
         # Path likelihoods
         ltau1 = np.exp(linear_mdp_env.state_rewards[0])
         ltau2 = np.exp(
@@ -368,15 +127,48 @@ class TestMarginals:
                 )
             )
         )
+        return ltau1, ltau2, ltau3, ltau4
+
+    def _get_GT_partition(self, linear_mdp_env):
+        """Compute ground truth partition value for the Linear MDP example
+        
+        These values are computed using manually derived and verified equations
+        specific to this example MDP
+        """
+        ltau1_GT, ltau2_GT, ltau3_GT, ltau4_GT = self._get_GT_likelihoods(
+            linear_mdp_env
+        )
 
         # Partition value
-        z_GT = ltau1 + ltau2 + ltau3 + ltau4
+        z_GT = ltau1_GT + ltau2_GT + ltau3_GT + ltau4_GT
+
+        return z_GT
+
+    def _get_GT_probs(self, linear_mdp_env):
+        """Compute ground truth path probabilities for the Linear MDP example
+        
+        These values are computed using manually derived and verified equations
+        specific to this example MDP
+        """
+        ltau1, ltau2, ltau3, ltau4 = self._get_GT_likelihoods(linear_mdp_env)
+        z_GT = self._get_GT_partition(linear_mdp_env)
 
         # Path probabilities
         ptau1_GT = ltau1 / z_GT
         ptau2_GT = ltau2 / z_GT
         ptau3_GT = ltau3 / z_GT
         ptau4_GT = ltau4 / z_GT
+
+        return ptau1_GT, ptau2_GT, ptau3_GT, ptau4_GT
+
+    def _get_GT_marginals(self, linear_mdp_env):
+        """Compute ground truth marginals for the Linear MDP example
+        
+        These values are computed using manually derived and verified equations
+        specific to this example MDP
+        """
+
+        ptau1_GT, ptau2_GT, ptau3_GT, ptau4_GT = self._get_GT_probs(linear_mdp_env)
 
         # State marginals
         pts_GT = np.zeros((4, 4))
@@ -398,12 +190,48 @@ class TestMarginals:
 
         return pts_GT, ptsa_GT, ptsas_GT
 
-    def test_marginals_GT(self, env_all):
-        """Test that marginals are correctly computed"""
+    def _get_GT_alpha(self, linear_mdp_env):
+        """Compute ground truth backward message values for the Linear MDP example
+        
+        These values are computed using manually derived and verified equations
+        specific to this example MDP
+        """
 
-        print("Testing marginal with respect to ground truth")
+        ltau1_GT, ltau2_GT, ltau3_GT, ltau4_GT = self._get_GT_likelihoods(
+            linear_mdp_env
+        )
 
-        alpha = backward_pass(
+        alpha_GT = np.zeros((4, TestMarginals.L))
+        alpha_GT[0, 0] = ltau1_GT
+        alpha_GT[1, 1] = ltau2_GT
+        alpha_GT[2, 2] = ltau3_GT
+        alpha_GT[3, 3] = ltau4_GT
+
+        return alpha_GT
+
+    def _get_GT_beta(self, linear_mdp_env):
+        """Compute ground truth forward message values for the Linear MDP example
+        
+        These values are computed using manually derived and verified equations
+        specific to this example MDP
+        """
+
+        ltau1_GT, ltau2_GT, ltau3_GT, ltau4_GT = self._get_GT_likelihoods(
+            linear_mdp_env
+        )
+
+        beta_GT = np.zeros((4, TestMarginals.L))
+
+        raise NotImplementedError
+
+        return beta_GT
+
+    def test_alpha_GT(self, env_all):
+        """Test that the partition is correctly computed"""
+
+        print("Testing backward message with respect to ground truth")
+
+        alpha_log = backward_pass_log(
             env_all.p0s,
             TestMarginals.L,
             env_all.t_mat,
@@ -414,7 +242,20 @@ class TestMarginals:
             rsas=env_all.state_action_state_rewards,
         )
 
-        beta = forward_pass(
+        # Drop dummy state
+        alpha_log = alpha_log[:-1, :]
+
+        # Compute ground truth backward message for Linear MDP
+        alpha_GT = self._get_GT_alpha(env_all)
+
+        np.testing.assert_array_almost_equal(np.exp(alpha_log), alpha_GT)
+
+    def test_beta_GT(self, env_all):
+        """Test that the partition is correctly computed"""
+
+        print("Testing forward message with respect to ground truth")
+
+        beta_log = forward_pass_log(
             TestMarginals.L,
             env_all.t_mat,
             env_all.children,
@@ -424,27 +265,87 @@ class TestMarginals:
             rsas=env_all.state_action_state_rewards,
         )
 
-        Z_theta = partition(TestMarginals.L, alpha)
+        # Drop dummy state
+        beta_log = beta_log[:-1, :]
 
-        pts, ptsa, ptsas = marginals(
+        # Compute ground truth backward message for Linear MDP
+        beta_GT = self._get_GT_beta(env_all)
+
+        with np.printoptions(linewidth=999):
+            print(np.exp(beta_log))
+            print(beta_GT)
+
+        np.testing.assert_array_almost_equal(np.exp(beta_log), beta_GT)
+
+    def test_partition_GT(self, env_all):
+        """Test that the partition is correctly computed"""
+
+        print("Testing marginal with respect to ground truth")
+
+        alpha_log = backward_pass_log(
+            env_all.p0s,
             TestMarginals.L,
             env_all.t_mat,
-            alpha,
-            beta,
-            Z_theta,
+            env_all.parents,
+            gamma=env_all.gamma,
+            rs=env_all.state_rewards,
+            rsa=env_all.state_action_rewards,
+            rsas=env_all.state_action_state_rewards,
+        )
+        Z_theta_log = partition_log(TestMarginals.L, alpha_log)
+
+        # Compute ground truth partition for the Linear MDP
+        z_GT = self._get_GT_partition(env_all)
+
+        np.testing.assert_almost_equal(np.exp(Z_theta_log), z_GT)
+
+    def test_marginals_GT(self, env_all):
+        """Test that marginals are correctly computed"""
+
+        print("Testing marginal with respect to ground truth")
+
+        alpha_log = backward_pass_log(
+            env_all.p0s,
+            TestMarginals.L,
+            env_all.t_mat,
+            env_all.parents,
+            gamma=env_all.gamma,
+            rs=env_all.state_rewards,
+            rsa=env_all.state_action_rewards,
+            rsas=env_all.state_action_state_rewards,
+        )
+
+        beta_log = forward_pass_log(
+            TestMarginals.L,
+            env_all.t_mat,
+            env_all.children,
+            gamma=env_all.gamma,
+            rs=env_all.state_rewards,
+            rsa=env_all.state_action_rewards,
+            rsas=env_all.state_action_state_rewards,
+        )
+
+        Z_theta_log = partition_log(TestMarginals.L, alpha_log)
+
+        pts_log, ptsa_log, ptsas_log = marginals_log(
+            TestMarginals.L,
+            env_all.t_mat,
+            alpha_log,
+            beta_log,
+            Z_theta_log,
             gamma=env_all.gamma,
             rsa=env_all.state_action_rewards,
             rsas=env_all.state_action_state_rewards,
         )
 
         # Drop dummy components
-        pts = pts[0:-1, 0:4]
-        ptsa = ptsa[0:-1, 0:-1, 0:3]
-        ptsas = ptsas[0:-1, 0:-1, 0:-1, 0:3]
+        pts_log = pts_log[0:-1, 0:4]
+        ptsa_log = ptsa_log[0:-1, 0:-1, 0:3]
+        ptsas_log = ptsas_log[0:-1, 0:-1, 0:-1, 0:3]
 
-        # Compute ground truth values for the Linear MDP
-        pts_GT, ptsa_GT, ptsas_GT = self._get_GT_values(env_all)
+        # Compute ground truth marginals for the Linear MDP
+        pts_GT, ptsa_GT, ptsas_GT = self._get_GT_marginals(env_all)
 
-        np.testing.assert_array_almost_equal(pts, pts_GT)
-        np.testing.assert_array_almost_equal(ptsa, ptsa_GT)
-        np.testing.assert_array_almost_equal(ptsas, ptsas_GT)
+        np.testing.assert_array_almost_equal(np.exp(pts_log), pts_GT)
+        np.testing.assert_array_almost_equal(np.exp(ptsa_log), ptsa_GT)
+        np.testing.assert_array_almost_equal(np.exp(ptsas_log), ptsas_GT)
