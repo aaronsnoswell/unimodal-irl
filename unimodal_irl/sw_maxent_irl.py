@@ -600,8 +600,9 @@ def sw_maxent_irl(
         rbound (float): Minimum and maximum reward weight values
         with_dummy_state (bool): Indicates if the MDP has been padded to include a dummy
             state
-        rescale_grad (bool): If true, re-scale the gradient. This can help prevent error
-            message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B for some problems.
+        rescale_grad (bool): If true, re-scale the gradient by it's L2 norm. This can
+            help prevent error message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B
+            for some problems.
         verbose (bool): Extra logging
     
     Returns:
