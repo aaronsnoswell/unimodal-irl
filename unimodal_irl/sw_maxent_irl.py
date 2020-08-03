@@ -469,7 +469,7 @@ def env_solve(env, L, with_dummy_state=True):
         (float): Partition value in log space
     """
 
-    alpha_log = nb_backward_pass_log(
+    alpha_log = backward_pass_log(
         env.p0s,
         L,
         env.t_mat,
@@ -478,7 +478,7 @@ def env_solve(env, L, with_dummy_state=True):
         rsa=env.state_action_rewards,
         rsas=env.state_action_state_rewards,
     )
-    beta_log = nb_forward_pass_log(
+    beta_log = forward_pass_log(
         L,
         env.t_mat,
         gamma=env.gamma,
@@ -487,7 +487,7 @@ def env_solve(env, L, with_dummy_state=True):
         rsas=env.state_action_state_rewards,
     )
     Z_theta_log = partition_log(L, alpha_log, with_dummy_state=with_dummy_state)
-    pts_log, ptsa_log, ptsas_log = nb_marginals_log(
+    pts_log, ptsa_log, ptsas_log = marginals_log(
         L,
         env.t_mat,
         alpha_log,
