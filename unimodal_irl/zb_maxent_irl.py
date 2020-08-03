@@ -12,6 +12,175 @@ from unimodal_irl.sw_maxent_irl import backward_pass_log, partition_log
 from unimodal_irl.utils import empirical_feature_expectations
 
 
+def state_marginals_08_log(p0s, t_mat, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2008 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    Z_s_log = np.zeros(t_mat.shape[0])
+    Z_a_log = np.zeros(t_mat.shape[1]) - np.inf
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+
+        # Sweep actions
+        # Find max value
+        m_t = -np.inf
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(m_t, np.log(t_mat[s1, a, s2]) + rs[s1] + Z_s_log[s2])
+
+        Z_a_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a_log[a] += t_mat[s1, a, s2] * np.exp(rs[s1] + Z_s_log[s2] - m_t)
+        Z_a_log = m_t + np.log(Z_a_log)
+
+        # Sweep states
+        # Find max value
+        m_t = np.max(Z_a_log)
+        Z_s_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s_log[s1] += np.exp(Z_a_log[a] - m_t)
+        Z_s_log = m_t + np.log(Z_s_log)
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            if np.isneginf(Z_s_log[s1]):
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = np.exp(Z_a_log[a] - Z_s_log[s1])
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    dst[s1, t + 1] += dst[s2, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
+@jit(nopython=True)
+def nb_state_marginals_08_log(p0s, t_mat, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2008 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    Z_s_log = np.zeros(t_mat.shape[0])
+    Z_a_log = np.zeros(t_mat.shape[1]) - np.inf
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+
+        # Sweep actions
+        # Find max value
+        m_t = -np.inf
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(m_t, np.log(t_mat[s1, a, s2]) + rs[s1] + Z_s_log[s2])
+
+        Z_a_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a_log[a] += t_mat[s1, a, s2] * np.exp(rs[s1] + Z_s_log[s2] - m_t)
+        Z_a_log = m_t + np.log(Z_a_log)
+
+        # Sweep states
+        # Find max value
+        m_t = np.max(Z_a_log)
+        Z_s_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s_log[s1] += np.exp(Z_a_log[a] - m_t)
+        Z_s_log = m_t + np.log(Z_s_log)
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            if Z_s_log[s1] == -np.inf:
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = np.exp(Z_a_log[a] - Z_s_log[s1])
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    dst[s1, t + 1] += dst[s2, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
 def state_marginals_08(p0s, t_mat, rs, max_path_length):
     """Compute state marginals using Ziebart's 2008 algorithm
     
@@ -147,6 +316,203 @@ def nb_state_marginals_08(p0s, t_mat, rs, max_path_length):
                     if t_mat[s1, a, s2] == 0:
                         continue
                     dst[s1, t + 1] += dst[s2, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
+def state_marginals_10_log(p0s, t_mat, terminal_state_mask, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2010 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        terminal_state_mask (numpy array): |S| array indicating terminal states
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    # NB: This step is different to the '08 version
+    Z_s = np.zeros(t_mat.shape[0])
+    Z_a = np.zeros(t_mat.shape[1])
+    Z_s[terminal_state_mask] = 1
+
+    # Prepare state and action partition arrays (Step 1)
+    # NB: This step is different to the '08 version
+    Z_s_log = np.zeros(t_mat.shape[0]) - np.inf
+    Z_a_log = np.zeros(t_mat.shape[1]) - np.inf
+    Z_s_log[terminal_state_mask] = 0
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+
+        # Sweep actions
+        # Find max value
+        m_t = -np.inf
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(m_t, np.log(t_mat[s1, a, s2]) + rs[s1] + Z_s_log[s2])
+
+        Z_a_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a_log[a] += t_mat[s1, a, s2] * np.exp(rs[s1] + Z_s_log[s2] - m_t)
+        Z_a_log = m_t + np.log(Z_a_log)
+
+        # Sweep states
+        # NB: This step is different to the '08 version
+        # Find max value
+        m_t = np.max(Z_a_log)
+        m_t = max(m_t, 0)
+        Z_s_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s_log[s1] += np.exp(Z_a_log[a] - m_t)
+                    if terminal_state_mask[s1]:
+                        Z_s_log[s1] += np.exp(-m_t)
+        Z_s_log = m_t + np.log(Z_s_log)
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            if Z_s[s1] == 0.0:
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = np.exp(Z_a_log[a] - Z_s_log[s1])
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    # NB: This step is different to the '08 version
+                    dst[s2, t + 1] += dst[s1, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
+@jit(nopython=True)
+def nb_state_marginals_10_log(p0s, t_mat, terminal_state_mask, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2010 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        terminal_state_mask (numpy array): |S| array indicating terminal states
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    # NB: This step is different to the '08 version
+    Z_s = np.zeros(t_mat.shape[0])
+    Z_a = np.zeros(t_mat.shape[1])
+    Z_s[terminal_state_mask] = 1
+
+    # Prepare state and action partition arrays (Step 1)
+    # NB: This step is different to the '08 version
+    Z_s_log = np.zeros(t_mat.shape[0]) - np.inf
+    Z_a_log = np.zeros(t_mat.shape[1]) - np.inf
+    Z_s_log[terminal_state_mask] = 0
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+
+        # Sweep actions
+        # Find max value
+        m_t = -np.inf
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(m_t, np.log(t_mat[s1, a, s2]) + rs[s1] + Z_s_log[s2])
+
+        Z_a_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a_log[a] += t_mat[s1, a, s2] * np.exp(rs[s1] + Z_s_log[s2] - m_t)
+        Z_a_log = m_t + np.log(Z_a_log)
+
+        # Sweep states
+        # NB: This step is different to the '08 version
+        # Find max value
+        m_t = np.max(Z_a_log)
+        m_t = max(m_t, 0)
+        Z_s_log[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s_log[s1] += np.exp(Z_a_log[a] - m_t)
+                    if terminal_state_mask[s1]:
+                        Z_s_log[s1] += np.exp(-m_t)
+        Z_s_log = m_t + np.log(Z_s_log)
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            if Z_s[s1] == 0.0:
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = np.exp(Z_a_log[a] - Z_s_log[s1])
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    # NB: This step is different to the '08 version
+                    dst[s2, t + 1] += dst[s1, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
 
     # Sum frequencies to get state marginals (Step 6)
     ps = np.sum(dst, axis=1)
@@ -406,6 +772,7 @@ def zb_maxent_irl(
         print(f"Optimizing state rewards with '{version} algorithm")
     theta_s = np.zeros(num_states)
     for gd_iteration in it.count():
+
         env._state_rewards = theta_s
         if verbose:
             print("Obj#{}".format(gd_iteration))
@@ -413,15 +780,14 @@ def zb_maxent_irl(
 
         if version == "08":
             # Compute state marginals
-            ps = state_marginals_08(
-                env.p0s, env.t_mat, env.children, env.state_rewards, max_path_length
+            ps = nb_state_marginals_08_log(
+                env.p0s, env.t_mat, env.state_rewards, max_path_length
             )
         elif version == "10":
-            ps = state_marginals_10(
+            ps = nb_state_marginals_10_log(
                 env.p0s,
                 env.t_mat,
                 env.terminal_state_mask,
-                env.children,
                 env.state_rewards,
                 max_path_length,
             )
