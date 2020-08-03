@@ -145,7 +145,23 @@ def zb_maxent_irl(
     max_iterations=None,
     verbose=False,
 ):
-    """TODO"""
+    """Maximum Entropy IRL
+    
+    Args:
+        rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
+        env (.envs.explicit.IExplicitEnv) Environment to solve
+        
+        rbound (float): Minimum and maximum reward weight values
+        version (str): Which version of Ziebart's algorithm to use.
+            Must be one of '08' or '10'
+        rescale_grad (bool): If true, re-scale the gradient by it's L2 norm. This can
+            help prevent error message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B
+            for some problems.
+        verbose (bool): Extra logging
+    
+    Returns:
+        (numpy array): State reward weights
+    """
 
     assert version in (
         "08",
