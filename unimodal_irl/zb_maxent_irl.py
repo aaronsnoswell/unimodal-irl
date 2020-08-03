@@ -1,6 +1,7 @@
 """Implements Maximum Entropy IRL from Ziebart 2008, 2010"""
 
 import copy
+import warnings
 import numpy as np
 import itertools as it
 
@@ -426,6 +427,16 @@ def zb_maxent_irl(
             )
         else:
             raise ValueError(f"Version must be one of '08' or '10', was {version}")
+
+        if np.any(np.isnan(ps)):
+            warnings.warn("Got NaN in ps")
+            assert False
+        if np.any(np.isneginf(ps)):
+            warnings.warn("Got negative infinity in ps")
+            assert False
+        if np.any(np.isinf(ps)):
+            warnings.warn("Got negative infinity in ps")
+            assert False
 
         # Compute gradient descent gradient
         gd_grad = ps - phibar_s
