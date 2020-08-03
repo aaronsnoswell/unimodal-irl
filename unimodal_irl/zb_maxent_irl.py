@@ -3,8 +3,11 @@
 import copy
 import numpy as np
 import itertools as it
+
+from numba import jit
 from scipy.optimize import minimize
 
+from unimodal_irl.sw_maxent_irl import backward_pass_log, partition_log
 from unimodal_irl.utils import empirical_feature_expectations
 
 
@@ -78,6 +81,153 @@ def state_marginals_08(p0s, t_mat, rs, max_path_length):
     return ps
 
 
+@jit(nopython=True)
+def nb_state_marginals_08(p0s, t_mat, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2008 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    Z_s = np.ones(t_mat.shape[0])
+    Z_a = np.zeros(t_mat.shape[1])
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+        # Sweep actions
+        Z_a[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a[a] += t_mat[s1, a, s2] * np.exp(rs[s1]) * Z_s[s2]
+
+        # Sweep states
+        Z_s[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s[s1] += Z_a[a]
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            if Z_s[s1] == 0.0:
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = Z_a[a] / Z_s[s1]
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    dst[s1, t + 1] += dst[s2, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
+def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
+    """Compute state marginals using Ziebart's 2010 algorithm
+    
+    This algorithm is designed to compute state marginals for an un-discounted MDP with
+    state-feature reward basis functions.
+    
+    Args:
+        p0s (numpy array): |S| array of state starting probabilities
+        t_mat (numpy array): |S|x|A|x|S| array of transition probabilities
+        terminal_state_mask (numpy array): |S| array indicating terminal states
+        rs (numpy array): |S| array of state reward weights
+        max_path_length (int): Maximum path length to consider
+        
+    Returns:
+        (numpy array): |S| array of un-discounted state marginals
+    """
+
+    # Prepare state and action partition arrays (Step 1)
+    # NB: This step is different to the '08 version
+    Z_s = np.zeros(t_mat.shape[0])
+    Z_a = np.zeros(t_mat.shape[1])
+    Z_s[terminal_state_mask] = 1
+
+    # Compute local partition values (Step 2)
+    for t in range(max_path_length):
+        # Sweep actions
+        Z_a[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[0]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_a[a] += t_mat[s1, a, s2] * np.exp(rs[s1]) * Z_s[s2]
+
+        # Sweep states
+        # NB: This step is different to the '08 version
+        Z_s[:] = 0
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[0]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    Z_s[s1] += Z_a[a] + terminal_state_mask[s1]
+
+    # Compute local action probabilities (Step 3)
+    prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[0]):
+            if Z_s[s1] == 0.0:
+                # This state was never reached during the backward pass
+                # Default to a uniform distribution over actions
+                prob_sa[s1, :] = 1.0 / t_mat.shape[1]
+            else:
+                prob_sa[s1, a] = Z_a[a] / Z_s[s1]
+
+    # Prepare state marginal array (Step 4)
+    dst = np.zeros((t_mat.shape[0], max_path_length + 1))
+    for t in range(max_path_length + 1):
+        dst[:, t] = p0s
+
+    # Compute state occurrences at each time (Step 5)
+    for t in range(max_path_length):
+        for s1 in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[0]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    # NB: This step is different to the '08 version
+                    dst[s2, t + 1] += dst[s1, t] * prob_sa[s1, a] * t_mat[s1, a, s2]
+
+    # Sum frequencies to get state marginals (Step 6)
+    ps = np.sum(dst, axis=1)
+    return ps
+
+
+@jit(nopython=True)
 def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     """Compute state marginals using Ziebart's 2010 algorithm
     
