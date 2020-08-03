@@ -180,7 +180,7 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
         # Sweep actions
         Z_a[:] = 0
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
@@ -190,7 +190,7 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
         # NB: This step is different to the '08 version
         Z_s[:] = 0
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
@@ -199,7 +199,7 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     # Compute local action probabilities (Step 3)
     prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
     for s1 in range(t_mat.shape[0]):
-        for a in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
             if Z_s[s1] == 0.0:
                 # This state was never reached during the backward pass
                 # Default to a uniform distribution over actions
@@ -215,7 +215,7 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     # Compute state occurrences at each time (Step 5)
     for t in range(max_path_length):
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
@@ -256,7 +256,7 @@ def nb_state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
         # Sweep actions
         Z_a[:] = 0
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
@@ -266,7 +266,7 @@ def nb_state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
         # NB: This step is different to the '08 version
         Z_s[:] = 0
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
@@ -275,7 +275,7 @@ def nb_state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     # Compute local action probabilities (Step 3)
     prob_sa = np.zeros(t_mat.shape[0 : 1 + 1])
     for s1 in range(t_mat.shape[0]):
-        for a in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
             if Z_s[s1] == 0.0:
                 # This state was never reached during the backward pass
                 # Default to a uniform distribution over actions
@@ -291,7 +291,7 @@ def nb_state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     # Compute state occurrences at each time (Step 5)
     for t in range(max_path_length):
         for s1 in range(t_mat.shape[0]):
-            for a in range(t_mat.shape[0]):
+            for a in range(t_mat.shape[1]):
                 for s2 in range(t_mat.shape[2]):
                     if t_mat[s1, a, s2] == 0:
                         continue
