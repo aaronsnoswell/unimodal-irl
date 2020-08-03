@@ -228,7 +228,7 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
 
 
 @jit(nopython=True)
-def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
+def nb_state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     """Compute state marginals using Ziebart's 2010 algorithm
     
     This algorithm is designed to compute state marginals for an un-discounted MDP with
