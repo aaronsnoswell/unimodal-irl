@@ -303,6 +303,56 @@ def state_marginals_10(p0s, t_mat, terminal_state_mask, rs, max_path_length):
     return ps
 
 
+def nll_s(theta_s, env, max_path_length, version, phibar_s, rescale_grad, verbose):
+    nll_s._call_count += 1
+    if verbose:
+        print("Obj#{}".format(nll_s._call_count))
+        print(theta_s)
+    env._state_rewards = theta_s
+    with np.errstate(over="raise"):
+
+        # We use our algorithm to find the true value of the NLL
+        alpha_log = backward_pass_log(
+            env.p0s, max_path_length, env.t_mat, env.gamma, rs=theta_s
+        )
+        Z_log = partition_log(max_path_length, alpha_log, with_dummy_state=False)
+        nll = Z_log - theta_s @ phibar_s
+
+        # We use Ziebart's algorithm(s) to find the gradient
+        if version == "08":
+            # Compute state marginals
+            ps = state_marginals_08(
+                env.p0s, env.t_mat, env.state_rewards, max_path_length
+            )
+        elif version == "10":
+            ps = state_marginals_10(
+                env.p0s,
+                env.t_mat,
+                env.terminal_state_mask,
+                env.state_rewards,
+                max_path_length,
+            )
+        else:
+            raise ValueError(f"Version must be one of '08' or '10', was {version}")
+
+        grad = ps - phibar_s
+
+        if rescale_grad:
+            if verbose:
+                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
+            grad /= np.linalg.norm(grad)
+
+        if verbose:
+            print("Grad = ")
+            print(grad)
+
+    return nll, grad
+
+
+# Static objective function call count
+nll_s._call_count = 0
+
+
 def zb_maxent_irl(
     rollouts,
     env,
