@@ -12,14 +12,13 @@ from unimodal_irl.utils import empirical_feature_expectations
 _NINF = np.finfo(np.float64).min
 
 
-def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas=None):
+def backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute backward message passing variable in log-space
     
     Args:
         p0s (numpy array): Starting state probabilities
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
-        parents (dict): Dictionary mapping states to (s, a) parent tuples
         
         gamma (float): Discount factor
         rs (numpy array): |S| array of linear state reward weights
@@ -40,30 +39,35 @@ def backward_pass_log(p0s, L, t_mat, parents, gamma=1.0, rs=None, rsa=None, rsas
     alpha = np.zeros((t_mat.shape[0], L))
     with np.errstate(divide="ignore"):
         alpha[:, 0] = np.log(p0s) + rs
-
     for t in range(L - 1):
-        for s2 in range(t_mat.shape[0]):
+        for s2 in range(t_mat.shape[2]):
             # Find maximum value among all parents of s2
             m_t = _NINF
-            for s1, a in parents[s2]:
-                m_t = max(
-                    m_t,
-                    (
-                        alpha[s1, t]
-                        + np.log(t_mat[s1, a, s2])
-                        + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
-                    ),
-                )
+            for s1 in range(t_mat.shape[0]):
+                for a in range(t_mat.shape[1]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(
+                        m_t,
+                        (
+                            alpha[s1, t]
+                            + np.log(t_mat[s1, a, s2])
+                            + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                        ),
+                    )
             m_t += (gamma ** (t + 1)) * rs[s2]
 
             # Compute next column of alpha in log-space
-            for s1, a in parents[s2]:
-                alpha[s2, t + 1] += t_mat[s1, a, s2] * np.exp(
-                    alpha[s1, t]
-                    + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
-                    + (gamma ** (t + 1)) * rs[s2]
-                    - m_t
-                )
+            for s1 in range(t_mat.shape[0]):
+                for a in range(t_mat.shape[1]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    alpha[s2, t + 1] += t_mat[s1, a, s2] * np.exp(
+                        alpha[s1, t]
+                        + gamma ** ((t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
+                        + (gamma ** (t + 1)) * rs[s2]
+                        - m_t
+                    )
             with np.errstate(divide="ignore"):
                 alpha[s2, t + 1] = m_t + np.log(alpha[s2, t + 1])
 
@@ -131,7 +135,7 @@ def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None)
     return alpha
 
 
-def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None):
+def forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute forward message passing variable in log space
     
     Args:
@@ -161,24 +165,32 @@ def forward_pass_log(L, t_mat, children, gamma=1.0, rs=None, rsa=None, rsas=None
         for s1 in range(t_mat.shape[0]):
             # Find maximum value among children of s1
             m_t = _NINF
-            for a, s2 in children[s1]:
-                m_t = max(
-                    m_t,
-                    (
-                        np.log(t_mat[s1, a, s2])
-                        + gamma ** (L - (t + 1) - 1) * (rsa[s1, a] + rsas[s1, a, s2])
-                        + beta[s2, t]
-                    ),
-                )
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    m_t = max(
+                        m_t,
+                        (
+                            np.log(t_mat[s1, a, s2])
+                            + gamma ** (L - (t + 1) - 1)
+                            * (rsa[s1, a] + rsas[s1, a, s2])
+                            + beta[s2, t]
+                        ),
+                    )
             m_t += gamma ** (L - (t + 1) - 1) * rs[s1]
 
             # Compute next column of beta in log-space
-            for a, s2 in children[s1]:
-                beta[s1, t + 1] += t_mat[s1, a, s2] * np.exp(
-                    gamma ** (L - (t + 1) - 1) * (rs[s1] + rsa[s1, a] + rsas[s1, a, s2])
-                    + beta[s2, t]
-                    - m_t
-                )
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    if t_mat[s1, a, s2] == 0:
+                        continue
+                    beta[s1, t + 1] += t_mat[s1, a, s2] * np.exp(
+                        gamma ** (L - (t + 1) - 1)
+                        * (rs[s1] + rsa[s1, a] + rsas[s1, a, s2])
+                        + beta[s2, t]
+                        - m_t
+                    )
             beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
 
     return beta
@@ -307,7 +319,8 @@ def marginals_log(
 
         for s1 in range(t_mat.shape[0]):
 
-            if np.isneginf(alpha_log[s1, t]):
+            # if np.isneginf(alpha_log[s1, t]):
+            if np.exp(alpha_log[s1, t]) == 0:
                 # Catch edge case where the backward message value is zero to prevent
                 # floating point error
                 pts[s1, t] = -np.inf
