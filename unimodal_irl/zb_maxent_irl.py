@@ -460,4 +460,3 @@ def zb_maxent_irl(
             break
 
     return theta_s
-
