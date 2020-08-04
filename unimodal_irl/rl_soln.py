@@ -6,6 +6,8 @@ import warnings
 import numpy as np
 import itertools as it
 
+from numba import jit
+
 
 def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     """Value iteration to find the optimal value function
@@ -74,6 +76,89 @@ def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
         else:
             if verbose:
                 print("Value Iteration #{}, delta={}".format(_iter, delta))
+
+    return value_fn
+
+
+def nb_value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
+    """Value iteration to find the optimal value function
+    
+    Args:
+        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
+        
+        eps (float): Value convergence tolerance
+        verbose (bool): Extra logging
+        max_iter (int): If provided, iteration will terminate regardless of convergence
+            after this many iterations.
+    
+    Returns:
+        (numpy array): |S| vector of state values
+    """
+
+    # Numba has trouble typing these arguments to the forward/backward functions below.
+    # We manually convert them here to avoid typing issues at JIT compile time
+    rs = env.state_rewards
+    if rs is None:
+        rs = np.zeros(env.t_mat.shape[0], dtype=np.float)
+
+    rsa = env.state_action_rewards
+    if rsa is None:
+        rsa = np.zeros(env.t_mat.shape[0:2], dtype=np.float)
+
+    rsas = env.state_action_state_rewards
+    if rsas is None:
+        rsas = np.zeros(env.t_mat.shape[0:3], dtype=np.float)
+
+    return _nb_value_iteration(
+        env.t_mat, env.gamma, rs, rsa, rsas, eps=eps, verbose=verbose, max_iter=max_iter
+    )
+
+
+@jit(nopython=True)
+def _nb_value_iteration(
+    t_mat, gamma, rs, rsa, rsas, eps=1e-6, verbose=False, max_iter=None
+):
+    """Value iteration to find the optimal value function
+    
+    Args:
+        eps (float): Value convergence tolerance
+        verbose (bool): Extra logging
+        max_iter (int): If provided, iteration will terminate regardless of convergence
+            after this many iterations.
+    
+    Returns:
+        (numpy array): |S| vector of state values
+    """
+
+    value_fn = np.zeros(t_mat.shape[0])
+
+    _iter = 0
+    while True:
+        delta = 0
+        for s1 in range(t_mat.shape[0]):
+            v = value_fn[s1]
+            action_values = np.zeros(t_mat.shape[1])
+            for a in range(t_mat.shape[1]):
+                for s2 in range(t_mat.shape[2]):
+                    action_values[a] += t_mat[s1, a, s2] * (
+                        rsa[s1, a] + rsas[s1, a, s2] + rs[s2] + gamma * value_fn[s2]
+                    )
+            value_fn[s1] = np.max(action_values)
+            delta = max(delta, np.abs(v - value_fn[s1]))
+
+        if max_iter is not None and _iter >= max_iter:
+            if verbose:
+                print("Terminating before convergence, # iterations = ", _iter)
+                break
+
+        # Check value function convergence
+        if delta < eps:
+            break
+        else:
+            if verbose:
+                print("Value Iteration #", _iter, " delta=", delta)
+
+        _iter += 1
 
     return value_fn
 
