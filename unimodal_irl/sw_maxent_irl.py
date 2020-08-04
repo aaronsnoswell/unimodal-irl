@@ -482,22 +482,25 @@ def env_solve(env, L, with_dummy_state=True):
         (float): Partition value in log space
     """
 
+    # Numba has trouble typing these arguments to the forward/backward functions below.
+    # We manually convert them here to avoid typing issues at JIT compile time
+    rs = env.state_rewards
+    if rs is None:
+        rs = np.zeros(env.t_mat.shape[0], dtype=np.float)
+
+    rsa = env.state_action_rewards
+    if rsa is None:
+        rsa = np.zeros(env.t_mat.shape[0:2], dtype=np.float)
+
+    rsas = env.state_action_state_rewards
+    if rsas is None:
+        rsas = np.zeros(env.t_mat.shape[0:3], dtype=np.float)
+
     alpha_log = nb_backward_pass_log(
-        env.p0s,
-        L,
-        env.t_mat,
-        gamma=env.gamma,
-        rs=env.state_rewards,
-        rsa=env.state_action_rewards,
-        rsas=env.state_action_state_rewards,
+        env.p0s, L, env.t_mat, gamma=env.gamma, rs=rs, rsa=rsa, rsas=rsas,
     )
     beta_log = nb_forward_pass_log(
-        L,
-        env.t_mat,
-        gamma=env.gamma,
-        rs=env.state_rewards,
-        rsa=env.state_action_rewards,
-        rsas=env.state_action_state_rewards,
+        L, env.t_mat, gamma=env.gamma, rs=rs, rsa=rsa, rsas=rsas,
     )
     Z_theta_log = partition_log(L, alpha_log, with_dummy_state=with_dummy_state)
     pts_log, ptsa_log, ptsas_log = nb_marginals_log(
@@ -507,8 +510,8 @@ def env_solve(env, L, with_dummy_state=True):
         beta_log,
         Z_theta_log,
         gamma=env.gamma,
-        rsa=env.state_action_rewards,
-        rsas=env.state_action_state_rewards,
+        rsa=rsa,
+        rsas=rsas,
     )
     return pts_log, ptsa_log, ptsas_log, Z_theta_log
 
