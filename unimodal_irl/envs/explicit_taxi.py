@@ -3,6 +3,9 @@
 The Taxi environment is first described in "Hierarchical Reinforcement Learning with the
 MAXQ Value Function Decomposition" by Erez et al., 2011
 
+The Taxi environment features state-action rewards, and has deterministic dynamics, but
+stochastic starting state.
+
 Base implementation is here:
 https://github.com/openai/gym/tree/master/gym/envs/toy_text/taxi.py
 """
