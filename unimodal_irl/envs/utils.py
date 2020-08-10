@@ -30,7 +30,7 @@ def compute_parents_children(t_mat, terminal_state_mask):
     return parents, children
 
 
-def pad_terminal_mdp(env, *, rollouts=None):
+def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
     """Pads a terminal MDP, adding a dummy state and action
     
     We gain a O(|S|) space and time efficiency improvement with our MaxEnt IRL algorithm
@@ -42,6 +42,8 @@ def pad_terminal_mdp(env, *, rollouts=None):
         env (.explicit.IExplicitEnv) Explicit MDP environment
         
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] rollouts to pad
+        max_length (int): Optional maximum length to pad to, otherwise paths are padded
+            to match the length of the longest path
     
     Returns:
         (.explicit.IExplicitEnv) Explicit MDP environment, padded with a dummy
@@ -116,7 +118,13 @@ def pad_terminal_mdp(env, *, rollouts=None):
     else:
         # Measure the length of the rollouts
         r_len = [len(r) for r in rollouts]
-        max_length = max(r_len)
+        if max_length is None:
+            max_length = max(r_len)
+        elif max_length < max(r_len):
+            warnings.warn(
+                f"Provided max length ({max_length}) is < maximum path length ({max(r_len)}), using maximum path length instead"
+            )
+            max_length = max(r_len)
 
         _rollouts = []
         dummy_state = t_mat2.shape[0] - 1
