@@ -163,6 +163,44 @@ def _nb_value_iteration(
     return value_fn
 
 
+@jit(nopython=True)
+def _nb_q_from_v(
+    v_star,
+    t_mat,
+    gamma,
+    state_rewards,
+    state_action_rewards,
+    state_action_state_rewards,
+):
+    """Find Q* given V* (numba optimized version)
+    
+    Args:
+        v_star (numpy array): |S| vector of optimal state values
+        t_mat (numpy array): |S|x|A|x|S| transition matrix
+        gamma (float): Discount factor
+        state_rewards (numpy array): |S| array of state rewards
+        state_action_rewards (numpy array): |S|x|A| array of state-action rewards
+        state_action_state_rewards (numpy array): |S|x|A|x|S| array of state-action-state rewards
+    
+    Returns:
+        (numpy array): |S|x|A| array of optimal state-action values
+    """
+
+    q_star = np.zeros(t_mat.shape[0 : 1 + 1])
+
+    for s1 in range(t_mat.shape[0]):
+        for a in range(t_mat.shape[1]):
+            for s2 in range(t_mat.shape[2]):
+                q_star[s1, a] += t_mat[s1, a, s2] * (
+                    state_action_rewards[s1, a]
+                    + state_action_state_rewards[s1, a, s2]
+                    + state_rewards[s2]
+                    + gamma * v_star[s2]
+                )
+
+    return q_star
+
+
 def q_from_v(v_star, env):
     """Find Q* given V*
     
@@ -185,17 +223,14 @@ def q_from_v(v_star, env):
     if _state_action_state_rewards is None:
         _state_action_state_rewards = np.zeros(env.t_mat.shape)
 
-    q_star = np.zeros(env.t_mat.shape[0 : 1 + 1])
-
-    for s1, a, s2 in it.product(env.states, env.actions, env.states):
-        q_star[s1, a] += env.t_mat[s1, a, s2] * (
-            _state_action_rewards[s1, a]
-            + _state_action_state_rewards[s1, a, s2]
-            + _state_rewards[s2]
-            + env.gamma * v_star[s2]
-        )
-
-    return q_star
+    return _nb_q_from_v(
+        v_star,
+        env.t_mat,
+        env.gamma,
+        _state_rewards,
+        _state_action_rewards,
+        _state_action_state_rewards,
+    )
 
 
 class EpsilonGreedyPolicy:
