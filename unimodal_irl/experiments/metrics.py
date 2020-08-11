@@ -10,7 +10,17 @@ from unimodal_irl.rl_soln import (
 )
 
 
-def ile_evd(env_GT, env_IRL, *, p=1, optimal_policy=None, verbose=False):
+def ile_evd(
+    env_GT,
+    env_IRL,
+    *,
+    p=1,
+    optimal_policy_value=None,
+    optimal_policy=None,
+    verbose=False,
+    vi_kwargs={},
+    pi_kwargs={}
+):
     """Find Inverse Learning Error and Expected Valud Difference metrics
     
     Inverse Learning Error is defined in "Inverse reinforcement learning in partially
@@ -26,9 +36,13 @@ def ile_evd(env_GT, env_IRL, *, p=1, optimal_policy=None, verbose=False):
             reward
         
         p (int): p-Norm to use for ILE, Choi and Kim and other papers recommend p=1
+        optimal_policy_value (numpy array): Optional shortcut - provide a pre-computed
+            value array for the optimal policy to save computing it in this function
         optimal_policy (object): Optional shortcut - provide a pre-trained optimal
             policy so we don't have to compute it
         verbose (bool): Extra logging info
+        vi_kwargs (dict): Extra keyword args for value_iteration
+        pi_kwargs (dict): Extra keyword args for policy_iteration
     
     Returns:
         (float): Inverse Learning Error metric
@@ -37,13 +51,17 @@ def ile_evd(env_GT, env_IRL, *, p=1, optimal_policy=None, verbose=False):
     # Find the ground truth value of the optimal policy
     if verbose:
         print("Solving for GT value of optimal policy")
-    if optimal_policy is None:
-        v_GT = value_iteration(env_GT, verbose=verbose)
-        q_GT = q_from_v(v_GT, env_GT)
-        pi_GT = EpsilonGreedyPolicy(q_GT)
+    if optimal_policy_value is None:
+        if optimal_policy is None:
+            v_GT = value_iteration(env_GT, **vi_kwargs)
+            q_GT = q_from_v(v_GT, env_GT)
+            pi_GT = EpsilonGreedyPolicy(q_GT)
+        else:
+            pi_GT = optimal_policy
+        vpi_GT = policy_evaluation(env_GT, pi_GT, **pi_kwargs)
     else:
-        pi_GT = optimal_policy
-    vpi_GT = policy_evaluation(env_GT, pi_GT)
+        vpi_GT = optimal_policy_value
+
     if verbose:
         print("Optimal policy GT value = \n{}".format(vpi_GT))
 
@@ -51,10 +69,10 @@ def ile_evd(env_GT, env_IRL, *, p=1, optimal_policy=None, verbose=False):
     # the true reward
     if verbose:
         print("Solving for GT value of learned policy")
-    v_IRL = value_iteration(env_IRL, verbose=verbose)
+    v_IRL = value_iteration(env_IRL, **vi_kwargs)
     q_IRL = q_from_v(v_IRL, env_IRL)
     pi_IRL = EpsilonGreedyPolicy(q_IRL)
-    vpi_IRL = policy_evaluation(env_GT, pi_IRL)
+    vpi_IRL = policy_evaluation(env_GT, pi_IRL, **pi_kwargs)
     if verbose:
         print("Learned policy GT value = \n{}".format(vpi_IRL))
 
