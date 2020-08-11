@@ -282,6 +282,57 @@ class EpsilonGreedyPolicy:
         return action, None
 
 
+@jit(nopython=True)
+def _nb_policy_evaluation(
+    t_mat,
+    gamma,
+    state_rewards,
+    state_action_rewards,
+    state_action_state_rewards,
+    policy_vector,
+    eps=1e-6,
+):
+    """Determine the value function of a given deterministic policy
+    
+    Args:
+        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
+        policy (object): Policy object providing a deterministic .predict(s) method to
+            match the stable-baselines policy API
+        
+        eps (float): State value convergence threshold
+    
+    Returns:
+        (numpy array): |S| state value vector
+    """
+
+    v_pi = np.zeros(t_mat.shape[0])
+
+    _iteration = 0
+    while True:
+        delta = 0
+        for s1 in range(t_mat.shape[0]):
+            v = v_pi[s1]
+            _tmp = 0
+            for a in range(t_mat.shape[1]):
+                if policy_vector[s1] != a:
+                    continue
+                for s2 in range(t_mat.shape[2]):
+                    _tmp += t_mat[s1, a, s2] * (
+                        state_action_rewards[s1, a]
+                        + state_action_state_rewards[s1, a, s2]
+                        + state_rewards[s2]
+                        + gamma * v_pi[s2]
+                    )
+            v_pi[s1] = _tmp
+            delta = max(delta, np.abs(v - v_pi[s1]))
+
+        if delta < eps:
+            break
+        _iteration += 1
+
+    return v_pi
+
+
 def policy_evaluation(env, policy, eps=1e-6):
     """Determine the value function of a given deterministic policy
     
@@ -295,7 +346,6 @@ def policy_evaluation(env, policy, eps=1e-6):
     Returns:
         (numpy array): |S| state value vector
     """
-    v_pi = np.zeros_like(env.states, dtype=float)
 
     # Prepare linear reward arrays
     _state_rewards = env.state_rewards
@@ -308,32 +358,12 @@ def policy_evaluation(env, policy, eps=1e-6):
     if _state_action_state_rewards is None:
         _state_action_state_rewards = np.zeros(env.t_mat.shape)
 
-    for _iteration in it.count():
-        delta = 0
-
-        for s1 in env.states:
-            v = v_pi[s1]
-            v_pi[s1] = np.sum(
-                [
-                    float(policy.predict(s1)[0] == a)
-                    * np.sum(
-                        [
-                            env.t_mat[s1, a, s2]
-                            * (
-                                _state_action_rewards[s1, a]
-                                + _state_action_state_rewards[s1, a, s2]
-                                + _state_rewards[s2]
-                                + env.gamma * v_pi[s2]
-                            )
-                            for s2 in env.states
-                        ]
-                    )
-                    for a in env.actions
-                ]
-            )
-            delta = max(delta, np.abs(v - v_pi[s1]))
-
-        if delta < eps:
-            break
-
-    return v_pi
+    return _nb_policy_evaluation(
+        env.t_mat,
+        env.gamma,
+        _state_rewards,
+        _state_action_rewards,
+        _state_action_state_rewards,
+        np.array([policy.predict(s)[0] for s in env.states]),
+        eps=eps,
+    )
