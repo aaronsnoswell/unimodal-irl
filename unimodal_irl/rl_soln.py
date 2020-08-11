@@ -9,7 +9,7 @@ import itertools as it
 from numba import jit
 
 
-def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
+def nonb_value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     """Value iteration to find the optimal value function
     
     Args:
@@ -80,7 +80,7 @@ def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     return value_fn
 
 
-def nb_value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
+def value_iteration(env, eps=1e-6, verbose=False, max_iter=None):
     """Value iteration to find the optimal value function
     
     Args:
