@@ -90,4 +90,10 @@ def empirical_feature_expectations(env, rollouts):
                 s2 = r[t + 1][0]
                 phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
 
+    # Divide by # demonstrations to get means
+    norm = 1 / len(rollouts)
+    phibar_s *= norm
+    phibar_sa *= norm
+    phibar_sas *= norm
+
     return phibar_s, phibar_sa, phibar_sas
