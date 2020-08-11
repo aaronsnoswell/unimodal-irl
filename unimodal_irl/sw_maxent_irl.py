@@ -671,8 +671,8 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            # method="L-BFGS-B",
-            method="TNC",
+            method="L-BFGS-B",
+            # method="TNC",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states)),
         )
@@ -701,8 +701,8 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            # method="L-BFGS-B",
-            method="TNC",
+            method="L-BFGS-B",
+            # method="TNC",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions)),
         )
@@ -731,8 +731,8 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            # method="L-BFGS-B",
-            method="TNC",
+            method="L-BFGS-B",
+            # method="TNC",
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
         )
