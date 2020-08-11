@@ -247,7 +247,7 @@ class EpsilonGreedyPolicy:
         return action, None
 
 
-def policy_evaluation(env, policy, tolerance=1e-6):
+def policy_evaluation(env, policy, eps=1e-6):
     """Determine the value function of a given deterministic policy
     
     Args:
@@ -255,7 +255,7 @@ def policy_evaluation(env, policy, tolerance=1e-6):
         policy (object): Policy object providing a deterministic .predict(s) method to
             match the stable-baselines policy API
         
-        tolerance (float): State value convergence threshold
+        eps (float): State value convergence threshold
     
     Returns:
         (numpy array): |S| state value vector
@@ -298,7 +298,7 @@ def policy_evaluation(env, policy, tolerance=1e-6):
             )
             delta = max(delta, np.abs(v - v_pi[s1]))
 
-        if delta < tolerance:
+        if delta < eps:
             break
 
     return v_pi
