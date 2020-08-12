@@ -97,3 +97,56 @@ def empirical_feature_expectations(env, rollouts):
     phibar_sas *= norm
 
     return phibar_s, phibar_sa, phibar_sas
+
+
+def minimize_vgd(f, x0, args=(), bounds=None, **kwargs):
+    """Minimize a function using vanilla gradient descent
+    
+    Args:
+        f (function): Objective function taking x0, args and returning objective value
+            and gradient vector
+        x0 (numpy array): Initial parameter guess
+        args (tuple): Optional collection of extra arguments for obj()
+        bounds (iterable): List of (min, max) bounds for each variable in x0
+    
+    Returns:
+    
+    """
+    x = x0
+    step_size = 0.1
+    tol = 1e-3
+
+    nit = 1
+    nfev = 1
+    status = ""
+    message = ""
+    for iter in it.count():
+        fun, jac = f(x, *args)
+        x_new = x - step_size * jac
+
+        # Clip to bounds
+        x_new = np.clip(x_new, [mn for (mn, mx) in bounds], [mx for (mn, mx) in bounds])
+
+        delta = np.max(np.abs(x_new - x))
+        x = x_new
+
+        if delta <= tol:
+            status = "converged"
+            message = f"max(abs(gradient)) <= desired tolerance ({tol})"
+            break
+
+        nit += 1
+        nfev += 1
+
+    return OptimizeResult(
+        {
+            "x": x,
+            "success": True,
+            "status": status,
+            "message": message,
+            "fun": fun,
+            "jac": jac,
+            "nfev": nfev,
+            "nit": nit,
+        }
+    )
