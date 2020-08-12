@@ -619,6 +619,8 @@ def sw_maxent_irl(
         rescale_grad (bool): If true, re-scale the gradient by it's L2 norm. This can
             help prevent error message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B
             for some problems.
+        opt_method (str): Optimizer to use. Any valid argument for
+            scipy.optimize.minimize()
         verbose (bool): Extra logging
     
     Returns:
@@ -652,6 +654,9 @@ def sw_maxent_irl(
     # Find discounted feature expectations
     phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
 
+    min_fn = minimize
+    # min_fn = minimize_vgd
+
     # Reset objective function call counts
     nll_s._call_count = 0
     nll_sa._call_count = 0
@@ -660,7 +665,7 @@ def sw_maxent_irl(
     if rs:
         if verbose:
             print("Optimizing state rewards")
-        res = minimize(
+        res = min_fn(
             nll_s,
             np.zeros(num_states),
             args=(
@@ -671,8 +676,7 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            method="L-BFGS-B",
-            # method="TNC",
+            method=opt_method,
             jac=True,
             bounds=tuple(rbound for _ in range(num_states)),
         )
@@ -690,7 +694,7 @@ def sw_maxent_irl(
     if rsa:
         if verbose:
             print("Optimizing state-action rewards")
-        res = minimize(
+        res = min_fn(
             nll_sa,
             np.zeros(num_states * num_actions),
             args=(
@@ -701,8 +705,7 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            method="L-BFGS-B",
-            # method="TNC",
+            method=opt_method,
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions)),
         )
@@ -720,7 +723,7 @@ def sw_maxent_irl(
     if rsas:
         if verbose:
             print("Optimizing state-action-state rewards")
-        res = minimize(
+        res = min_fn(
             nll_sas,
             np.zeros(num_states * num_actions * num_states),
             args=(
@@ -731,8 +734,7 @@ def sw_maxent_irl(
                 rescale_grad,
                 verbose,
             ),
-            method="L-BFGS-B",
-            # method="TNC",
+            method=opt_method,
             jac=True,
             bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
         )
