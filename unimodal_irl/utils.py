@@ -3,6 +3,8 @@
 import numpy as np
 import itertools as it
 
+from scipy.optimize import OptimizeResult
+
 
 def get_rollouts(env, policy, num_rollouts, *, max_episode_length=None, verbose=False):
     """Get rollouts of a policy in an environment
