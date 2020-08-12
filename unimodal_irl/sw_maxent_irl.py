@@ -602,6 +602,7 @@ def sw_maxent_irl(
     rbound=(-1.0, 1.0),
     with_dummy_state=False,
     rescale_grad=False,
+    opt_method="L-BFGS-B",
     verbose=False,
 ):
     """Maximum Entropy IRL
