@@ -770,6 +770,7 @@ def sw_maxent_irl(
             method=opt_method,
             jac=jac,
             bounds=tuple(rbound for _ in range(num_states * num_actions)),
+            options=dict(disp=True),
         )
 
         if not res.success:
@@ -805,6 +806,7 @@ def sw_maxent_irl(
             method=opt_method,
             jac=jac,
             bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
+            options=dict(disp=True),
         )
 
         if not res.success:
