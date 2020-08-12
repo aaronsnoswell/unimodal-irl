@@ -1,6 +1,7 @@
 """Implements Maximum Entropy IRL from my thesis"""
 
 import copy
+import warnings
 import numpy as np
 from numba import jit
 from scipy.optimize import minimize
@@ -517,7 +518,14 @@ def env_solve(env, L, with_dummy_state=True):
 
 
 def nll_s(
-    theta_s, env, max_path_length, with_dummy_state, phibar_s, rescale_grad, verbose
+    theta_s,
+    env,
+    max_path_length,
+    with_dummy_state,
+    phibar_s,
+    nll_only,
+    rescale_grad,
+    verbose,
 ):
     nll_s._call_count += 1
     if verbose:
@@ -529,12 +537,18 @@ def nll_s(
             env, max_path_length, with_dummy_state=with_dummy_state
         )
         nll = Z_log - theta_s @ phibar_s
-        grad = np.sum(np.exp(pts_log), axis=1) - phibar_s
-        if rescale_grad:
-            if verbose:
-                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
-            grad /= np.linalg.norm(grad)
-    return nll, grad
+
+        if nll_only:
+            return nll
+        else:
+            grad = np.sum(np.exp(pts_log), axis=1) - phibar_s
+            if rescale_grad:
+                if verbose:
+                    print(
+                        f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}"
+                    )
+                grad /= np.linalg.norm(grad)
+            return nll, grad
 
 
 # Static objective function call count
@@ -542,7 +556,14 @@ nll_s._call_count = 0
 
 
 def nll_sa(
-    theta_sa, env, max_path_length, with_dummy_state, phibar_sa, rescale_grad, verbose
+    theta_sa,
+    env,
+    max_path_length,
+    with_dummy_state,
+    phibar_sa,
+    nll_only,
+    rescale_grad,
+    verbose,
 ):
     nll_sa._call_count += 1
     if verbose:
@@ -554,12 +575,18 @@ def nll_sa(
             env, max_path_length, with_dummy_state=with_dummy_state
         )
         nll = Z_log - theta_sa @ phibar_sa.flatten()
-        grad = (np.sum(np.exp(ptsa_log), axis=2) - phibar_sa).flatten()
-        if rescale_grad:
-            if verbose:
-                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
-            grad /= np.linalg.norm(grad)
-    return nll, grad
+
+        if nll_only:
+            return nll
+        else:
+            grad = (np.sum(np.exp(ptsa_log), axis=2) - phibar_sa).flatten()
+            if rescale_grad:
+                if verbose:
+                    print(
+                        f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}"
+                    )
+                grad /= np.linalg.norm(grad)
+            return nll, grad
 
 
 # Static objective function call count
@@ -567,7 +594,14 @@ nll_sa._call_count = 0
 
 
 def nll_sas(
-    theta_sas, env, max_path_length, with_dummy_state, phibar_sas, rescale_grad, verbose
+    theta_sas,
+    env,
+    max_path_length,
+    with_dummy_state,
+    phibar_sas,
+    nll_only,
+    rescale_grad,
+    verbose,
 ):
     nll_sas._call_count += 1
     if verbose:
@@ -581,12 +615,18 @@ def nll_sas(
             env, max_path_length, with_dummy_state=with_dummy_state
         )
         nll = Z_log - theta_sas @ phibar_sas.flatten()
-        grad = (np.sum(np.exp(ptsas_log), axis=3) - phibar_sas).flatten()
-        if rescale_grad:
-            if verbose:
-                print(f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}")
-            grad /= np.linalg.norm(grad)
-    return nll, grad
+
+        if nll_only:
+            return nll
+        else:
+            grad = (np.sum(np.exp(ptsas_log), axis=3) - phibar_sas).flatten()
+            if rescale_grad:
+                if verbose:
+                    print(
+                        f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}"
+                    )
+                grad /= np.linalg.norm(grad)
+            return nll, grad
 
 
 # Static objective function call count
@@ -603,6 +643,7 @@ def sw_maxent_irl(
     with_dummy_state=False,
     rescale_grad=False,
     opt_method="L-BFGS-B",
+    grad_twopoint=False,
     verbose=False,
 ):
     """Maximum Entropy IRL
@@ -622,6 +663,8 @@ def sw_maxent_irl(
             for some problems.
         opt_method (str): Optimizer to use. Any valid argument for
             scipy.optimize.minimize()
+        grad_twopoint (bool): If true, use a two-point numerical difference gradient
+            estimate, rather than the gradient from the algorithm
         verbose (bool): Extra logging
     
     Returns:
@@ -655,13 +698,23 @@ def sw_maxent_irl(
     # Find discounted feature expectations
     phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
 
+    # Use scipy minimization procedures
     min_fn = minimize
-    # min_fn = minimize_vgd
+
+    # Estimate gradient from two-point NLL numerical difference?
+    # Seems to help with convergence for some problems
+    if grad_twopoint:
+        jac = "2-point"
+        nll_only = True
+    else:
+        jac = True
+        nll_only = False
 
     # Reset objective function call counts
     nll_s._call_count = 0
     nll_sa._call_count = 0
     nll_sas._call_count = 0
+
     theta_s = None
     if rs:
         if verbose:
@@ -674,13 +727,20 @@ def sw_maxent_irl(
                 max_path_length,
                 with_dummy_state,
                 phibar_s,
+                nll_only,
                 rescale_grad,
-                verbose,
+                False,  # verbose,
             ),
             method=opt_method,
-            jac=True,
+            jac=jac,
             bounds=tuple(rbound for _ in range(num_states)),
+            options=dict(disp=True),
         )
+
+        if not res.success:
+            warnings.warn("Minimization did not succeed")
+            print(res)
+
         theta_s = res.x
         if verbose:
             print(res)
@@ -703,13 +763,19 @@ def sw_maxent_irl(
                 max_path_length,
                 with_dummy_state,
                 phibar_sa,
+                nll_only,
                 rescale_grad,
-                verbose,
+                False,  # verbose,
             ),
             method=opt_method,
-            jac=True,
+            jac=jac,
             bounds=tuple(rbound for _ in range(num_states * num_actions)),
         )
+
+        if not res.success:
+            warnings.warn("Minimization did not succeed")
+            print(res)
+
         theta_sa = res.x.reshape((num_states, num_actions))
         if verbose:
             print(res)
@@ -732,13 +798,19 @@ def sw_maxent_irl(
                 max_path_length,
                 with_dummy_state,
                 phibar_sas,
+                nll_only,
                 rescale_grad,
-                verbose,
+                False,  # verbose,
             ),
             method=opt_method,
-            jac=True,
+            jac=jac,
             bounds=tuple(rbound for _ in range(num_states * num_actions * num_states)),
         )
+
+        if not res.success:
+            warnings.warn("Minimization did not succeed")
+            print(res)
+
         theta_sas = res.x.reshape((num_states, num_actions, num_states))
         if verbose:
             print(res)
