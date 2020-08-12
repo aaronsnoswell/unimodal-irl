@@ -721,7 +721,7 @@ def sw_maxent_irl(
             print("Optimizing state rewards")
         res = min_fn(
             nll_s,
-            np.zeros(num_states),
+            np.zeros(num_states) + np.mean(rbound),
             args=(
                 env,
                 max_path_length,
@@ -757,7 +757,7 @@ def sw_maxent_irl(
             print("Optimizing state-action rewards")
         res = min_fn(
             nll_sa,
-            np.zeros(num_states * num_actions),
+            np.zeros(num_states * num_actions) + np.mean(rbound),
             args=(
                 env,
                 max_path_length,
@@ -793,7 +793,7 @@ def sw_maxent_irl(
             print("Optimizing state-action-state rewards")
         res = min_fn(
             nll_sas,
-            np.zeros(num_states * num_actions * num_states),
+            np.zeros(num_states * num_actions * num_states) + np.mean(rbound),
             args=(
                 env,
                 max_path_length,
