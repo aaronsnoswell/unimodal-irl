@@ -14,7 +14,6 @@ setup(
         "pandas >= 1.0.1",
         "matplotlib",
         "seaborn",
-        "warnings",
         "python-interface",
         "pytest",
         "explicit-env @ git+https://github.com/aaronsnoswell/explicit-env.git",
