@@ -2,6 +2,7 @@
 
 import gym
 import copy
+import warnings
 import numpy as np
 import itertools as it
 
