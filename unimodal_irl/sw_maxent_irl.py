@@ -633,6 +633,68 @@ def nll_sas(
 nll_sas._call_count = 0
 
 
+def maxent_log_likelihood(
+    rollouts, env, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False
+):
+    """Compute the log-likelihood of demonstrations under a MaxEnt model
+    
+    Returns:
+        (float): Log likelihood of trained demonstration data under the given reward
+            parameters
+    """
+
+    # Copy the environment so we don't modify it
+    env = copy.deepcopy(env)
+
+    num_states = len(env.states)
+    num_actions = len(env.actions)
+
+    # Find max path length
+    if len(rollouts) == 1:
+        max_path_length = min_path_length = len(rollouts[0])
+    else:
+        max_path_length = max(*[len(r) for r in rollouts])
+
+    # Find discounted feature expectations
+    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
+
+    if theta_s is None:
+        theta_s = np.zeros(num_states)
+    if theta_sa is None:
+        theta_sa = np.zeros(num_states * num_actions)
+    if theta_sas is None:
+        theta_sas = np.zeros(num_states * num_actions * num_states)
+
+    assert (
+        len(theta_s) == env.t_mat.shape[0]
+    ), "Passed state rewards do not match environment state dimension"
+    assert len(theta_sa) == np.product(
+        env.t_mat.shape[0:2]
+    ), "Passed state-action rewards do not match environment state-action dimension(s)"
+    assert len(theta_sas) == np.product(
+        env.t_mat.shape[:]
+    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
+
+    env._state_rewards = theta_s
+    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
+    env._state_action_state_rewards = theta_sas.reshape(
+        (len(env.states), len(env.actions), len(env.states))
+    )
+    with np.errstate(over="raise"):
+        _, _, _, Z_log = env_solve(
+            env, max_path_length, with_dummy_state=with_dummy_state
+        )
+    ll = (
+        theta_s @ phibar_s.flatten()
+        + theta_sa @ phibar_sa.flatten()
+        + theta_sas @ phibar_sas.flatten()
+        + np.mean([env.path_log_probability(p) for p in rollouts])
+        - Z_log
+    )
+
+    return ll
+
+
 def sw_maxent_irl(
     rollouts,
     env,
