@@ -15,6 +15,7 @@ setup(
         "matplotlib",
         "seaborn",
         "python-interface",
+        "pytest",
     ],
     packages=find_packages(),
 )
