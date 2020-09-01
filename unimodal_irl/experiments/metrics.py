@@ -71,7 +71,7 @@ def ile_evd(
         print("Solving for GT value of learned policy")
     v_IRL = value_iteration(env_IRL, **vi_kwargs)
     q_IRL = q_from_v(v_IRL, env_IRL)
-    pi_IRL = OptimalPolicy(q_GT, stochastic=False)
+    pi_IRL = OptimalPolicy(q_IRL, stochastic=False)
     vpi_IRL = policy_evaluation(env_GT, pi_IRL, **pi_kwargs)
     if verbose:
         print("Learned policy GT value = \n{}".format(vpi_IRL))
