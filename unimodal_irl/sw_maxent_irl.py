@@ -706,6 +706,7 @@ def sw_maxent_irl(
     rescale_grad=False,
     opt_method="L-BFGS-B",
     grad_twopoint=False,
+    path_weights=None,
     verbose=False,
 ):
     """Maximum Entropy IRL
@@ -727,6 +728,8 @@ def sw_maxent_irl(
             scipy.optimize.minimize()
         grad_twopoint (bool): If true, use a two-point numerical difference gradient
             estimate, rather than the gradient from the algorithm
+        path_weights (numpy array): Optional list of path weights - used for performing
+            weighted moment matching.
         verbose (bool): Extra logging
     
     Returns:
@@ -757,8 +760,18 @@ def sw_maxent_irl(
         min_path_length == max_path_length
     ), "Paths are of unequal lengths - please ensure the environment is padded before continuing"
 
+    if path_weights is None:
+        # Default to uniform path weighting
+        path_weights = np.ones(len(rollouts))
+    else:
+        assert len(path_weights) == len(
+            rollouts
+        ), f"Path weights are not correct size, should be {len(rollouts)}, are {len(path_weights)}"
+
     # Find discounted feature expectations
-    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
+    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(
+        env, rollouts, weights=path_weights
+    )
 
     # Use scipy minimization procedures
     min_fn = minimize
