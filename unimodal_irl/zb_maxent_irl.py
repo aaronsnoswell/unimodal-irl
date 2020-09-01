@@ -728,6 +728,7 @@ def zb_maxent_irl(
     step_size=1e-4,
     tol=1e-6,
     max_iterations=None,
+    path_weights=None,
     verbose=False,
 ):
     """Maximum Entropy IRL
@@ -742,6 +743,8 @@ def zb_maxent_irl(
         rescale_grad (bool): If true, re-scale the gradient by it's L2 norm. This can
             help prevent error message 'ABNORMAL_TERMINATION_IN_LNSRCH' from L-BFGS-B
             for some problems.
+        path_weights (numpy array): Optional list of path weights - used for performing
+            weighted moment matching.
         verbose (bool): Extra logging
     
     Returns:
@@ -764,8 +767,12 @@ def zb_maxent_irl(
     if verbose:
         print("Max path length: {}".format(max_path_length))
 
+    if path_weights is None:
+        # Default to uniform path weighting
+        path_weights = np.ones(len(rollouts))
+
     # Find discounted feature expectations
-    phibar_s, _, _ = empirical_feature_expectations(env, rollouts)
+    phibar_s, _, _ = empirical_feature_expectations(env, rollouts, weights=path_weights)
 
     # Begin gradient descent loop
     if verbose:
