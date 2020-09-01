@@ -175,13 +175,15 @@ def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
         return env, _rollouts
 
 
-def empirical_feature_expectations(env, rollouts):
+def empirical_feature_expectations(env, rollouts, weights=None):
     """Find empirical discounted feature expectations
     
     Args:
         env (unimodal_irl.envs.explicit.IExplicitEnv): Environment defining dynamics,
             reward(s) and discount factor
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
+        weights (numpy array): Optional list of weights that can augment the path
+            feature expectations
     
     Returns:
         (numpy array): |S| array of state marginals
@@ -189,30 +191,36 @@ def empirical_feature_expectations(env, rollouts):
         (numpy array): |S|x|A|x|S| array of state-action-state marginals
     """
 
+    if weights is None:
+        # Default to uniform path weighting
+        weights = np.ones(len(rollouts))
+    else:
+        assert len(weights) == len(
+            rollouts
+        ), f"Path weights are not correct size, should be {len(rollouts)}, are {len(weights)}"
+
     # Find discounted feature expectations
     phibar_s = np.zeros(env.t_mat.shape[0])
     phibar_sa = np.zeros(env.t_mat.shape[0 : 1 + 1])
     phibar_sas = np.zeros(env.t_mat.shape)
-    for r in rollouts:
+    for r, w in zip(rollouts, weights):
 
         if env.state_rewards is not None:
             for t, (s1, _) in enumerate(r):
-                phibar_s[s1] += (env.gamma ** t) * 1
+                phibar_s[s1] += w * (env.gamma ** t)
 
         if env.state_action_rewards is not None:
             for t, (s1, a) in enumerate(r[:-1]):
-                phibar_sa[s1, a] += (env.gamma ** t) * 1
+                phibar_sa[s1, a] += w * (env.gamma ** t)
 
         if env.state_action_state_rewards is not None:
             for t, (s1, a) in enumerate(r[:-1]):
                 s2 = r[t + 1][0]
-                phibar_sas[s1, a, s2] += (env.gamma ** t) * 1
+                phibar_sas[s1, a, s2] += w * (env.gamma ** t)
 
-    # Divide by # demonstrations to get means
-    norm = 1 / len(rollouts)
-    phibar_s *= norm
-    phibar_sa *= norm
-    phibar_sas *= norm
+    phibar_s /= np.sum(weights)
+    phibar_sa /= np.sum(weights)
+    phibar_sas /= np.sum(weights)
 
     return phibar_s, phibar_sa, phibar_sas
 
