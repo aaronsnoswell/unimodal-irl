@@ -634,9 +634,26 @@ nll_sas._call_count = 0
 
 
 def maxent_log_likelihood(
-    rollouts, env, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False
+    rollouts,
+    env,
+    theta_s=None,
+    theta_sa=None,
+    theta_sas=None,
+    with_dummy_state=False,
+    path_weights=None,
 ):
     """Compute the log-likelihood of demonstrations under a MaxEnt model
+    
+    Args:
+        rollouts (list): List of list of state-action tuples
+        env (explicit_env.IExplicitEnv): Environment to use
+        theta_s (numpy array): State reward weights
+        theta_sa (numpy array): State-action reward weights
+        theta_sas (numpy array): State-action-state reward weights
+        with_dummy_state (bool): Have the MDP and rollouts been padded with a dummy
+            state using utils.pad_terminal_mdp()?
+        path_weights (numpy array): Optional list of path weights - used for performing
+            weighted moment matching.
     
     Returns:
         (float): Log likelihood of trained demonstration data under the given reward
@@ -655,8 +672,18 @@ def maxent_log_likelihood(
     else:
         max_path_length = max(*[len(r) for r in rollouts])
 
+    if path_weights is None:
+        # Default to uniform path weighting
+        path_weights = np.ones(len(rollouts))
+    else:
+        assert len(path_weights) == len(
+            rollouts
+        ), f"Path weights are not correct size, should be {len(rollouts)}, are {len(path_weights)}"
+
     # Find discounted feature expectations
-    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(env, rollouts)
+    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(
+        env, rollouts, weights=path_weights
+    )
 
     if theta_s is None:
         theta_s = np.zeros(num_states)
@@ -688,7 +715,10 @@ def maxent_log_likelihood(
         theta_s @ phibar_s.flatten()
         + theta_sa @ phibar_sa.flatten()
         + theta_sas @ phibar_sas.flatten()
-        + np.mean([env.path_log_probability(p) for p in rollouts])
+        + np.average(
+            [env.path_log_probability(p) for p in rollouts],
+            weights=path_weights / np.sum(path_weights),
+        )
         - Z_log
     )
 
