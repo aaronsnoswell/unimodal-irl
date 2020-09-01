@@ -2,10 +2,10 @@
 
 import numpy as np
 
-from unimodal_irl.rl_soln import (
+from explicit_env.soln import (
     value_iteration,
     q_from_v,
-    EpsilonGreedyPolicy,
+    OptimalPolicy,
     policy_evaluation,
 )
 
@@ -21,7 +21,7 @@ def ile_evd(
     vi_kwargs={},
     pi_kwargs={}
 ):
-    """Find Inverse Learning Error and Expected Valud Difference metrics
+    """Find Inverse Learning Error and Expected Value Difference metrics
     
     Inverse Learning Error is defined in "Inverse reinforcement learning in partially
     observable environments." by Choi and Kim, 2011.
@@ -55,7 +55,7 @@ def ile_evd(
         if optimal_policy is None:
             v_GT = value_iteration(env_GT, **vi_kwargs)
             q_GT = q_from_v(v_GT, env_GT)
-            pi_GT = EpsilonGreedyPolicy(q_GT)
+            pi_GT = OptimalPolicy(q_GT, stochastic=False)
         else:
             pi_GT = optimal_policy
         vpi_GT = policy_evaluation(env_GT, pi_GT, **pi_kwargs)
@@ -71,7 +71,7 @@ def ile_evd(
         print("Solving for GT value of learned policy")
     v_IRL = value_iteration(env_IRL, **vi_kwargs)
     q_IRL = q_from_v(v_IRL, env_IRL)
-    pi_IRL = EpsilonGreedyPolicy(q_IRL)
+    pi_IRL = OptimalPolicy(q_GT, stochastic=False)
     vpi_IRL = policy_evaluation(env_GT, pi_IRL, **pi_kwargs)
     if verbose:
         print("Learned policy GT value = \n{}".format(vpi_IRL))
