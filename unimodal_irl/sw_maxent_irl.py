@@ -497,6 +497,7 @@ def env_solve(env, L, with_dummy_state=True):
     if rsas is None:
         rsas = np.zeros(env.t_mat.shape[0:3], dtype=np.float)
 
+    # If this call fails, check that rewards are all dtype float, not int!
     alpha_log = nb_backward_pass_log(
         env.p0s, L, env.t_mat, gamma=env.gamma, rs=rs, rsa=rsa, rsas=rsas,
     )
