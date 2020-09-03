@@ -634,6 +634,48 @@ def nll_sas(
 nll_sas._call_count = 0
 
 
+def maxent_log_partition(
+    env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
+):
+    """Find Maximum Entropy model log partition value"""
+
+    # Copy the environment so we don't modify it
+    env = copy.deepcopy(env)
+
+    num_states = len(env.states)
+    num_actions = len(env.actions)
+
+    if theta_s is None:
+        theta_s = np.zeros(num_states)
+    if theta_sa is None:
+        theta_sa = np.zeros(num_states * num_actions)
+    if theta_sas is None:
+        theta_sas = np.zeros(num_states * num_actions * num_states)
+
+    assert (
+        len(theta_s) == env.t_mat.shape[0]
+    ), "Passed state rewards do not match environment state dimension"
+    assert len(theta_sa) == np.product(
+        env.t_mat.shape[0:2]
+    ), "Passed state-action rewards do not match environment state-action dimension(s)"
+    assert len(theta_sas) == np.product(
+        env.t_mat.shape[:]
+    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
+
+    env._state_rewards = theta_s
+    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
+    env._state_action_state_rewards = theta_sas.reshape(
+        (len(env.states), len(env.actions), len(env.states))
+    )
+
+    with np.errstate(over="raise"):
+        _, _, _, Z_log = env_solve(
+            env, max_path_length, with_dummy_state=with_dummy_state
+        )
+
+    return Z_log
+
+
 def maxent_log_likelihood(
     rollouts,
     env,
@@ -661,9 +703,6 @@ def maxent_log_likelihood(
             parameters
     """
 
-    # Copy the environment so we don't modify it
-    env = copy.deepcopy(env)
-
     num_states = len(env.states)
     num_actions = len(env.actions)
 
@@ -673,19 +712,6 @@ def maxent_log_likelihood(
     else:
         max_path_length = max(*[len(r) for r in rollouts])
 
-    if path_weights is None:
-        # Default to uniform path weighting
-        path_weights = np.ones(len(rollouts))
-    else:
-        assert len(path_weights) == len(
-            rollouts
-        ), f"Path weights are not correct size, should be {len(rollouts)}, are {len(path_weights)}"
-
-    # Find discounted feature expectations
-    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(
-        env, rollouts, weights=path_weights
-    )
-
     if theta_s is None:
         theta_s = np.zeros(num_states)
     if theta_sa is None:
@@ -693,25 +719,15 @@ def maxent_log_likelihood(
     if theta_sas is None:
         theta_sas = np.zeros(num_states * num_actions * num_states)
 
-    assert (
-        len(theta_s) == env.t_mat.shape[0]
-    ), "Passed state rewards do not match environment state dimension"
-    assert len(theta_sa) == np.product(
-        env.t_mat.shape[0:2]
-    ), "Passed state-action rewards do not match environment state-action dimension(s)"
-    assert len(theta_sas) == np.product(
-        env.t_mat.shape[:]
-    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
-
-    env._state_rewards = theta_s
-    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
-    env._state_action_state_rewards = theta_sas.reshape(
-        (len(env.states), len(env.actions), len(env.states))
+    Z_log = maxent_log_partition(
+        env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
     )
-    with np.errstate(over="raise"):
-        _, _, _, Z_log = env_solve(
-            env, max_path_length, with_dummy_state=with_dummy_state
-        )
+
+    # Find discounted feature expectations
+    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(
+        env, rollouts, weights=path_weights
+    )
+
     ll = (
         theta_s @ phibar_s.flatten()
         + theta_sa @ phibar_sa.flatten()
