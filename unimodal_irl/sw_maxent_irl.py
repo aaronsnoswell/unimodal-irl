@@ -742,6 +742,51 @@ def maxent_log_likelihood(
     return ll
 
 
+def maxent_path_logprobs(
+    env, rollouts, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False,
+):
+    """Find MaxEnt log-probability of each path in a list of paths"""
+
+    num_states = len(env.states)
+    num_actions = len(env.actions)
+
+    # Find max path length
+    if len(rollouts) == 1:
+        max_path_length = min_path_length = len(rollouts[0])
+    else:
+        max_path_length = max(*[len(r) for r in rollouts])
+
+    if theta_s is None:
+        theta_s = np.zeros(num_states)
+    if theta_sa is None:
+        theta_sa = np.zeros(num_states * num_actions)
+    if theta_sas is None:
+        theta_sas = np.zeros(num_states * num_actions * num_states)
+
+    Z_log = maxent_log_partition(
+        env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
+    )
+
+    def r_tau(tau):
+        """Get discounted reward of a trajectory"""
+        r_tau = 0
+        if env.state_rewards is not None:
+            for t, (s, _) in enumerate(tau):
+                r_tau += (env.gamma ** t) * env.state_rewards[s]
+        if env.state_action_rewards is not None:
+            for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
+                r_tau += (env.gamma ** t) * env.state_action_rewards[s1, a]
+        if env.state_action_rewards is not None:
+            for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
+                r_tau += (env.gamma ** t) * (+env.state_action_state_rewards[s1, a, s2])
+        return r_tau
+
+    path_log_probs = (
+        np.array([env.path_log_probability(r) + r_tau(r) for r in rollouts]) - Z_log
+    )
+    return path_log_probs
+
+
 def sw_maxent_irl(
     rollouts,
     env,
