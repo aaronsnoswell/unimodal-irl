@@ -16,7 +16,7 @@ setup(
         "seaborn",
         "python-interface",
         "pytest",
-        "explicit-env @ git+https://github.com/aaronsnoswell/explicit-env.git",
+        "explicit_env @ git+https://github.com/aaronsnoswell/explicit-env.git",
     ],
     packages=find_packages(),
 )
