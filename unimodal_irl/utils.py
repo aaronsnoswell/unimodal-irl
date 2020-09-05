@@ -179,11 +179,11 @@ def empirical_feature_expectations(env, rollouts, weights=None):
     """Find empirical discounted feature expectations
     
     Args:
-        env (unimodal_irl.envs.explicit.IExplicitEnv): Environment defining dynamics,
-            reward(s) and discount factor
+        env (unimodal_irl.envs.explicit.IExplicitEnv): Environment defining dynamics
+            and discount factor
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
         weights (numpy array): Optional list of weights that can augment the path
-            feature expectations
+            feature expectations. Defaults to uniform.
     
     Returns:
         (numpy array): |S| array of state marginals
