@@ -742,10 +742,32 @@ def maxent_log_likelihood(
     return ll
 
 
+def r_tau(env, tau):
+    """Get discounted reward of a trajectory in an environment
+    
+    Args:
+        env (explicit_env.IExplicitEnv): Environment defining rewards and discount
+        tau (list): State-action trajectory
+    """
+    r_tau = 0
+    if env.state_rewards is not None:
+        for t, (s, _) in enumerate(tau):
+            r_tau += (env.gamma ** t) * env.state_rewards[s]
+    if env.state_action_rewards is not None:
+        for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
+            r_tau += (env.gamma ** t) * env.state_action_rewards[s1, a]
+    if env.state_action_rewards is not None:
+        for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
+            r_tau += (env.gamma ** t) * (+env.state_action_state_rewards[s1, a, s2])
+    return r_tau
+
+
 def maxent_path_logprobs(
     env, rollouts, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False,
 ):
     """Find MaxEnt log-probability of each path in a list of paths"""
+    
+    env = copy.deepcopy(env)
 
     num_states = len(env.states)
     num_actions = len(env.actions)
@@ -766,23 +788,13 @@ def maxent_path_logprobs(
     Z_log = maxent_log_partition(
         env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
     )
-
-    def r_tau(tau):
-        """Get discounted reward of a trajectory"""
-        r_tau = 0
-        if env.state_rewards is not None:
-            for t, (s, _) in enumerate(tau):
-                r_tau += (env.gamma ** t) * env.state_rewards[s]
-        if env.state_action_rewards is not None:
-            for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
-                r_tau += (env.gamma ** t) * env.state_action_rewards[s1, a]
-        if env.state_action_rewards is not None:
-            for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
-                r_tau += (env.gamma ** t) * (+env.state_action_state_rewards[s1, a, s2])
-        return r_tau
+    
+    env._state_rewards = theta_s
+    env._state_action_rewards = theta_sa.reshape(num_states, num_actions)
+    env._state_action_state_rewards = theta_sas.reshape(num_states, num_actions, num_states)
 
     path_log_probs = (
-        np.array([env.path_log_probability(r) + r_tau(r) for r in rollouts]) - Z_log
+        np.array([env.path_log_probability(r) + r_tau(env, r) for r in rollouts]) - Z_log
     )
     return path_log_probs
 
