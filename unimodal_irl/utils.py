@@ -11,59 +11,6 @@ from scipy.optimize import OptimizeResult
 from explicit_env.envs.utils import compute_parents_children
 
 
-def get_rollouts(env, policy, num_rollouts, *, max_episode_length=None, verbose=False):
-    """Get rollouts of a policy in an environment
-    
-    Args:
-        env (gym.Env): Environment to use
-        policy (object): Policy object with a .predict() method matching the
-            stable-baselines policy API.
-        num_rollouts: Number of rollouts to collect
-        
-        max_episode_length (int): If provided, stop trajectories at this length
-        verbose (bool): If true, print extra logging info
-        
-    Returns:
-        (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
-    """
-
-    rollouts = []
-    for episode in it.count():
-
-        # Prepare one trajectory
-        rollout = []
-
-        # Reset environment
-        s = env.reset()
-        for timestep in it.count():
-
-            # Sample action from policy
-            a, _ = policy.predict(s)
-
-            # Add state, action to trajectory
-            rollout.append((s, a))
-
-            # Step environment
-            s, r, done, _ = env.step(a)
-
-            if done:
-                break
-
-            if max_episode_length is not None:
-                if timestep == max_episode_length - 2:
-                    if verbose:
-                        print("Stopping after reaching maximum episode length")
-                    break
-
-        rollout.append((s, None))
-        rollouts.append(rollout)
-
-        if episode == num_rollouts - 1:
-            break
-
-    return rollouts
-
-
 def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
     """Pads a terminal MDP, adding a dummy state and action
     
