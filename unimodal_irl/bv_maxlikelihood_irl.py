@@ -280,27 +280,6 @@ def bv_maxlikelihood_irl(
         options=dict(disp=True),
     )
 
-    # # Initialize reward weights randomly
-    # theta_sa = np.random.randn(num_states, num_actions).flatten()
-
-    # # While not converged:
-    # while True:
-    #
-    #     # Feed nll and grad into scipy.optimize.minimize and take gradient step
-    #     nll, grad = nll_sa(
-    #         theta_sa, env, boltzmann_scale, rollouts, num_rollouts, False, False, False,
-    #     )
-    #
-    #     # Gradient descent
-    #     theta_sa_prev = theta_sa.copy()
-    #     theta_sa -= step_size * grad
-    #     delta = np.max(np.abs(theta_sa_prev - theta_sa))
-    #     print(delta)
-    #
-    #     if delta < 1e-5:
-    #         print("Converged")
-    #         break
-
     print("Done")
 
 
