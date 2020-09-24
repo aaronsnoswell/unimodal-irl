@@ -637,7 +637,19 @@ nll_sas._call_count = 0
 def maxent_log_partition(
     env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
 ):
-    """Find Maximum Entropy model log partition value"""
+    """Find Maximum Entropy model log partition value
+    
+    Args:
+        env (explicit_env.IExplicitEnv): Environment defining dynamics
+        max_path_length (int): Maximum path length
+        theta_s (numpy array): |S| array of state reward parameters
+        theta_sa (numpy array): |S|x|A| array of state-action reward parameters
+        theta_sas (numpy array): |S|x|A|x|S| array of state-action-state reward parameters
+        with_dummy_state (bool): True if the environment is padded
+    
+    Returns:
+        (float): Log partition value
+    """
 
     # Copy the environment so we don't modify it
     env = copy.deepcopy(env)
@@ -648,25 +660,17 @@ def maxent_log_partition(
     if theta_s is None:
         theta_s = np.zeros(num_states)
     if theta_sa is None:
-        theta_sa = np.zeros(num_states * num_actions)
+        theta_sa = np.zeros(num_states, num_actions)
     if theta_sas is None:
-        theta_sas = np.zeros(num_states * num_actions * num_states)
+        theta_sas = np.zeros(num_states, num_actions, num_states)
 
-    assert (
-        len(theta_s) == env.t_mat.shape[0]
-    ), "Passed state rewards do not match environment state dimension"
-    assert len(theta_sa) == np.product(
-        env.t_mat.shape[0:2]
-    ), "Passed state-action rewards do not match environment state-action dimension(s)"
-    assert len(theta_sas) == np.product(
-        env.t_mat.shape[:]
-    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
+    assert theta_s.shape == tuple((env.t_mat.shape[0], )), "Passed state rewards do not match environment state dimension"
+    assert theta_sa.shape == tuple(env.t_mat.shape[0:2]), "Passed state-action rewards do not match environment state-action dimension(s)"
+    assert theta_sas.shape == env.t_mat.shape, "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
 
     env._state_rewards = theta_s
-    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
-    env._state_action_state_rewards = theta_sas.reshape(
-        (len(env.states), len(env.actions), len(env.states))
-    )
+    env._state_action_rewards = theta_sa
+    env._state_action_state_rewards = theta_sas
 
     with np.errstate(over="raise"):
         _, _, _, Z_log = env_solve(
@@ -765,7 +769,18 @@ def r_tau(env, tau):
 def maxent_path_logprobs(
     env, rollouts, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False,
 ):
-    """Find MaxEnt log-probability of each path in a list of paths"""
+    """Find MaxEnt log-probability of each path in a list of paths
+    
+    Args:
+        env (explicit_env.IExplicitEnv): Environment defining dynamics
+        rollouts (list): List of state-action rollouts
+        theta_s (numpy array): |S| array of state reward parameters
+        theta_sa (numpy array): |S|x|A| array of state-action reward parameters
+        theta_sas (numpy array): |S|x|A|x|S| array of state-action-state reward parameters
+    
+    Returns:
+        (list): List of log-probabilities for each path in rollouts
+    """
     
     env = copy.deepcopy(env)
 
@@ -781,17 +796,17 @@ def maxent_path_logprobs(
     if theta_s is None:
         theta_s = np.zeros(num_states)
     if theta_sa is None:
-        theta_sa = np.zeros(num_states * num_actions)
+        theta_sa = np.zeros((num_states, num_actions))
     if theta_sas is None:
-        theta_sas = np.zeros(num_states * num_actions * num_states)
+        theta_sas = np.zeros((num_states, num_actions, num_states))
 
     Z_log = maxent_log_partition(
         env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
     )
     
     env._state_rewards = theta_s
-    env._state_action_rewards = theta_sa.reshape(num_states, num_actions)
-    env._state_action_state_rewards = theta_sas.reshape(num_states, num_actions, num_states)
+    env._state_action_rewards = theta_sa
+    env._state_action_state_rewards = theta_sas
 
     path_log_probs = (
         np.array([env.path_log_probability(r) + r_tau(env, r) for r in rollouts]) - Z_log
