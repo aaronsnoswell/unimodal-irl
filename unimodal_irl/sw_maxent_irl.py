@@ -660,13 +660,19 @@ def maxent_log_partition(
     if theta_s is None:
         theta_s = np.zeros(num_states)
     if theta_sa is None:
-        theta_sa = np.zeros(num_states, num_actions)
+        theta_sa = np.zeros((num_states, num_actions))
     if theta_sas is None:
-        theta_sas = np.zeros(num_states, num_actions, num_states)
+        theta_sas = np.zeros((num_states, num_actions, num_states))
 
-    assert theta_s.shape == tuple((env.t_mat.shape[0], )), "Passed state rewards do not match environment state dimension"
-    assert theta_sa.shape == tuple(env.t_mat.shape[0:2]), "Passed state-action rewards do not match environment state-action dimension(s)"
-    assert theta_sas.shape == env.t_mat.shape, "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
+    assert theta_s.shape == tuple(
+        (env.t_mat.shape[0],)
+    ), "Passed state rewards do not match environment state dimension"
+    assert theta_sa.shape == tuple(
+        env.t_mat.shape[0:2]
+    ), "Passed state-action rewards do not match environment state-action dimension(s)"
+    assert (
+        theta_sas.shape == env.t_mat.shape
+    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
 
     env._state_rewards = theta_s
     env._state_action_rewards = theta_sa
@@ -781,7 +787,7 @@ def maxent_path_logprobs(
     Returns:
         (list): List of log-probabilities for each path in rollouts
     """
-    
+
     env = copy.deepcopy(env)
 
     num_states = len(env.states)
@@ -803,13 +809,14 @@ def maxent_path_logprobs(
     Z_log = maxent_log_partition(
         env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
     )
-    
+
     env._state_rewards = theta_s
     env._state_action_rewards = theta_sa
     env._state_action_state_rewards = theta_sas
 
     path_log_probs = (
-        np.array([env.path_log_probability(r) + r_tau(env, r) for r in rollouts]) - Z_log
+        np.array([env.path_log_probability(r) + r_tau(env, r) for r in rollouts])
+        - Z_log
     )
     return path_log_probs
 
