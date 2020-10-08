@@ -764,11 +764,11 @@ def r_tau(env, tau):
         for t, (s, _) in enumerate(tau):
             r_tau += (env.gamma ** t) * env.state_rewards[s]
     if env.state_action_rewards is not None:
+        for t, (s, a) in enumerate(tau[:-1]):
+            r_tau += (env.gamma ** t) * env.state_action_rewards[s, a]
+    if env.state_action_state_rewards is not None:
         for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
-            r_tau += (env.gamma ** t) * env.state_action_rewards[s1, a]
-    if env.state_action_rewards is not None:
-        for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
-            r_tau += (env.gamma ** t) * (+env.state_action_state_rewards[s1, a, s2])
+            r_tau += (env.gamma ** t) * env.state_action_state_rewards[s1, a, s2]
     return r_tau
 
 
