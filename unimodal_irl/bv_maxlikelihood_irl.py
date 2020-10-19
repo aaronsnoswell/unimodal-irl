@@ -139,9 +139,10 @@ def nll_sa(
     boltzmann_scale,
     rollouts,
     num_rollouts_phibar_calc,
-    nll_only,
-    rescale_grad,
-    verbose,
+    phibar_calc_max_rollout_length=None,
+    nll_only=False,
+    rescale_grad=False,
+    verbose=False,
 ):
     nll_sa._call_count += 1
     if verbose:
@@ -162,10 +163,32 @@ def nll_sa(
         for s in env.states:
             ell_sa[s, :] = pi_b.prob_for_state(s)
 
-        # Compute expected state, state-action, state-action-state counts under policy
-        _, Phi_sa, _ = empirical_feature_expectations(
-            env, pi_b.get_rollouts(env, num_rollouts_phibar_calc, max_path_length=30)
-        )
+        # Compute expected feature vector under policy
+        # _, Phi_sa, _ = empirical_feature_expectations(
+        #     env, pi_b.get_rollouts(env, num_rollouts_phibar_calc, max_path_length=30)
+        # )
+        # Get a crapload of rollouts
+        _rollouts = [
+            pi_b.get_rollouts(
+                env,
+                num_rollouts_phibar_calc,
+                max_path_length=phibar_calc_max_rollout_length,
+                first_state=_s0,
+                first_action=_a0,
+            )
+            for _s0 in env.states
+            for _a0 in env.actions
+        ]
+        Phi_s = np.zeros((len(env.states)))
+        Phi_sa = np.zeros((len(env.states), len(env.actions)))
+        Phi_sas = np.zeros((len(env.states), len(env.actions), len(env.states)))
+        for _r in _rollouts:
+            for t, (s, _) in enumerate(_r):
+                pass
+            for t, (s, a) in enumerate(_r[:-1]):
+                pass
+            for t, ((s1, a), (s2, _)) in enumerate(zip(_r[:-1], _r[1:])):
+                pass
 
         # Compute gradient of likelihoods of pairs using Phi_sa
         # This step is an approximation by Neu and Szepesvari, 2007
@@ -208,13 +231,7 @@ nll_sa._call_count = 0
 
 
 def bv_maxlikelihood_irl(
-    env,
-    rollouts,
-    *,
-    boltzmann_scale=0.5,
-    num_rollouts=1000,
-    step_size=0.01,
-    verbose=True,
+    env, rollouts, *, boltzmann_scale=0.5, num_rollouts=1000, verbose=True,
 ):
     """Find Reward function using ML-IRL
     
@@ -236,6 +253,10 @@ def bv_maxlikelihood_irl(
             leads to optimal policy, but no exploration.
         num_rollouts (int): Number of rollouts to use for empirical calculation of the
             Boltzman policy feature expectation(s)
+        verbose (bool): Print progress information
+    
+    Returns:
+        None
     """
 
     num_states = len(env.states)
@@ -283,28 +304,65 @@ def bv_maxlikelihood_irl(
     print("Done")
 
 
+# # Algorithm from https://github.com/Riley16/scot/blob/master/algorithms/max_likelihood_irl.py for
+# # for computing the expected feature counts. Seems to be total Bullshit.
+# def get_feature_counts(env, pi, tol=1e-6):
+#     """Get expected linear feature counts under a policy
+#
+#     Args:
+#
+#     """
+#
+#     # s-s' probability under policy and dynamics
+#     pol_trans = np.zeros((len(env.states), len(env.states)))
+#     for s1 in env.states:
+#         for a in env.actions:
+#             pol_trans[s1, :] += pi.prob_for_state_action(s1, a) * env.t_mat[s1, a, :]
+#
+#     with np.errstate(all="raise"):
+#         mu_s = np.zeros((len(env.states), len(env.states)))
+#         eps = np.inf
+#         while eps > tol:
+#             mu_s_new = np.zeros_like(mu_s)
+#             for s1 in env.states:
+#                 phi_s = np.zeros_like(env.states)
+#                 phi_s[s1] = 1.0
+#                 mu_s_new[s1, :] = phi_s + env.gamma * np.sum(
+#                     [
+#                         pol_trans[s1, s2]
+#                         * mu_s[s2, :]
+#                         * (not env.terminal_state_mask[s1])
+#                         for s2 in env.states
+#                     ]
+#                 )
+#             eps = np.max(np.abs(mu_s_new - mu_s))
+#             print(eps)
+#             mu_s = mu_s_new
+#
+#     print(mu_s)
+
+
 def main():
     """Main function"""
 
     # Test functionality
-    # from explicit_env.envs.explicit_frozen_lake import ExplicitFrozenLakeEnv
+    from explicit_env.envs.explicit_frozen_lake import ExplicitFrozenLakeEnv
     from explicit_env.envs.explicit_nchain import ExplicitNChainEnv
     from explicit_env.soln import q_value_iteration, OptimalPolicy
 
-    # env = ExplicitFrozenLakeEnv()
+    env = ExplicitFrozenLakeEnv()
+    env._gamma = 0.1
+    # env = ExplicitNChainEnv()
     # env._gamma = 0.99
-    env = ExplicitNChainEnv()
-    env._gamma = 0.99
+    pi = OptimalPolicy(q_value_iteration(env))
 
-    # Get rollouts
-    num_rollouts = 20
-    rollouts = OptimalPolicy(q_value_iteration(env)).get_rollouts(
-        env, num_rollouts, max_path_length=30
-    )
-
-    reward_weights = bv_maxlikelihood_irl(env, rollouts)
-
-    print(reward_weights)
+    # # Get rollouts
+    # num_rollouts = 20
+    # rollouts = pi.get_rollouts(
+    #     env, num_rollouts, max_path_length=30
+    # )
+    # reward_weights = bv_maxlikelihood_irl(env, rollouts)
+    # print(reward_weights)
 
 
 if __name__ == "__main__":
