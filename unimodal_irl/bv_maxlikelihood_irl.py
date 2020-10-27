@@ -1,4 +1,8 @@
+import copy
 import numpy as np
+import warnings
+
+import itertools as it
 
 from numba import jit
 
@@ -6,7 +10,8 @@ from scipy.optimize import minimize
 
 from explicit_env.soln import BoltzmannExplorationPolicy
 
-from utils import empirical_feature_expectations
+from explicit_env.soln import q_value_iteration
+from unimodal_irl.utils import empirical_feature_expectations
 
 
 def smq_value_iteration(env, beta=0.5, eps=1e-6, verbose=False, max_iter=None):
@@ -138,170 +143,180 @@ def nll_sa(
     env,
     boltzmann_scale,
     rollouts,
-    num_rollouts_phibar_calc,
-    phibar_calc_max_rollout_length=None,
+    max_path_length,
+    num_rollouts_per_sa_pair,
     nll_only=False,
-    rescale_grad=False,
     verbose=False,
 ):
     nll_sa._call_count += 1
     if verbose:
         print("Obj#{}".format(nll_sa._call_count))
         print(theta_sa)
-    env._state_action_rewards = theta_sa.reshape((len(env.states), len(env.actions)))
-    with np.errstate(over="raise"):
 
-        # Find Q_theta using smq_value_iteration
-        smq_theta = smq_value_iteration(env, beta=boltzmann_scale)
+    feature_dim = len(env.states) * len(env.actions)
 
-        # Form boltzmann policy from Q_theta
-        # This is used to compute likelihood of (s,a) pairs ell_theta[s,a]
-        pi_b = BoltzmannExplorationPolicy(smq_theta, scale=boltzmann_scale)
+    # Compute Q*, pi* for current reward guess
+    env._state_action_rewards = theta_sa.reshape(len(env.states), len(env.actions))
+    q = q_value_iteration(env)
+    pi = BoltzmannExplorationPolicy(q, scale=boltzmann_scale)
 
-        # Compute likelihoods of state-action pairs
-        ell_sa = np.zeros((len(env.states), len(env.actions)))
+    if not nll_only:
+        # Calculate expected feature vector under pi for all starting state-actions
+        phi_pi_sa = np.zeros((len(env.states), len(env.actions), feature_dim))
         for s in env.states:
-            ell_sa[s, :] = pi_b.prob_for_state(s)
-
-        # Compute expected feature vector under policy
-        # _, Phi_sa, _ = empirical_feature_expectations(
-        #     env, pi_b.get_rollouts(env, num_rollouts_phibar_calc, max_path_length=30)
-        # )
-        # Get a crapload of rollouts
-        _rollouts = [
-            pi_b.get_rollouts(
-                env,
-                num_rollouts_phibar_calc,
-                max_path_length=phibar_calc_max_rollout_length,
-                first_state=_s0,
-                first_action=_a0,
-            )
-            for _s0 in env.states
-            for _a0 in env.actions
-        ]
-        Phi_s = np.zeros((len(env.states)))
-        Phi_sa = np.zeros((len(env.states), len(env.actions)))
-        Phi_sas = np.zeros((len(env.states), len(env.actions), len(env.states)))
-        for _r in _rollouts:
-            for t, (s, _) in enumerate(_r):
-                pass
-            for t, (s, a) in enumerate(_r[:-1]):
-                pass
-            for t, ((s1, a), (s2, _)) in enumerate(zip(_r[:-1], _r[1:])):
-                pass
-
-        # Compute gradient of likelihoods of pairs using Phi_sa
-        # This step is an approximation by Neu and Szepesvari, 2007
-        duh_ell_duh_theta = np.zeros((len(env.states), len(env.actions)))
-        for s in env.states:
+            # Force desired starting state
+            env._p0s = np.zeros_like(env.p0s)
+            env._p0s[s] = 1
             for a in env.actions:
-                duh_ell_duh_theta[s, a] = (
-                    boltzmann_scale
-                    * ell_sa[s, a]
-                    * (Phi_sa[s, a] - ell_sa[s, :] @ Phi_sa[s, :])
+                # Start in state s, action a
+                env.reset()
+                forced_sa_rollouts = pi.get_rollouts(
+                    env,
+                    num_rollouts_per_sa_pair,
+                    max_path_length=max_path_length,
+                    start_action=a,
+                )
+                _, phi_sa, _ = empirical_feature_expectations(env, forced_sa_rollouts)
+                phi_pi_sa[s, a, :] = phi_sa.flatten()
+
+    # Sweep demonstrated state-action pairs
+    log_likelihood = 0
+    nabla = np.zeros_like(theta_sa)
+    for path in rollouts:
+        for s, a in path[:-1]:
+            ell_theta = pi.prob_for_state_action(s, a)
+
+            # Accumulate log likelihood of demonstration data
+            log_likelihood += np.log(ell_theta)
+
+            if not nll_only:
+                # Estimate gradient of log likelihood wrt. parameters
+                nabla += boltzmann_scale * (
+                    phi_pi_sa[s, a, :]
+                    - np.sum(
+                        [
+                            pi.prob_for_state_action(s, b) * phi_pi_sa[s, b, :]
+                            for b in env.actions
+                        ]
+                    )
                 )
 
-        # Accumulate log likelihood and log likelihood gradient contributions
-        nll = 0
-        grad = np.zeros((len(env.states), len(env.actions)))
-        for rollout in rollouts:
-            for s, a in rollout[:-1]:
-                nll -= np.log(ell_sa[s, a])
-                grad[s, a] += 1.0 / ell_sa[s, a] * duh_ell_duh_theta[s, a]
-        grad = grad.flatten()
+    nll = -1 * log_likelihood
+    nll_grad = -1 * nabla
 
-        if verbose:
-            print(nll)
-            print(grad)
-
-        if nll_only:
-            return nll
-        else:
-            if rescale_grad:
-                if verbose:
-                    print(
-                        f"Re-scaling gradient by a factor of 1/{np.linalg.norm(grad)}"
-                    )
-                grad /= np.linalg.norm(grad)
-            return nll, grad
+    if nll_only:
+        return nll
+    else:
+        return nll, nll_grad
 
 
 # Static objective function call count
 nll_sa._call_count = 0
 
 
-def bv_maxlikelihood_irl(
-    env, rollouts, *, boltzmann_scale=0.5, num_rollouts=1000, verbose=True,
+def bv_maxlikelihood_irl_take2(
+    env,
+    rollouts,
+    boltzmann_scale=0.5,
+    max_iterations=None,
+    max_path_length=None,
+    num_rollouts_per_sa_pair=10,
+    grad_twopoint=True,
+    verbose=False,
 ):
-    """Find Reward function using ML-IRL
-    
+    """Find Reward function using Max Likelihood IRL
+
     See: http://www.icml-2011.org/papers/478_icmlpaper.pdf
     Also: https://arxiv.org/pdf/1202.1558.pdf
     Also: https://arxiv.org/ftp/arxiv/papers/1206/1206.5264.pdf
     Also: https://www.overleaf.com/project/5edf22df9b1f270001507c4d
-    
+
     Example implementation (this implementation gets the Softmax Q-function from the
     Babes-Vroman paper wrong, but appears to get other details right like the gradient
     estimation)
     https://github.com/Riley16/scot/blob/master/algorithms/max_likelihood_irl.py
-    
+
     Args:
         env (explicit_env.IExplicitEnv): Reward-less environment to solve for
         rollouts (list): List of demonstration state-action rollouts
-        
+
         boltzmann_scale (float): Boltzmann policy scale parameter. Values -> infinity
             leads to optimal policy, but no exploration.
-        num_rollouts (int): Number of rollouts to use for empirical calculation of the
-            Boltzman policy feature expectation(s)
+        max_iterations (int): Maximum number of optimization steps.
+        max_path_length (int): Max path length to use when sampling rollouts for
+            estimation of likelihood gradient. Only needed for continuing (non episodic)
+            MDPs. Also only needed if grad_twopoint=False.
+        num_rollouts_per_sa_pair (int): Number of rollouts to sample for each (s, a)
+            pair for estimation of likelihood gradient. If environment is deterministic,
+            this can be set to 1. Only needed if grad_twopoint=False.
+        grad_twopoint (bool): If true, use two-point numerical difference gradient
+            estimation rather than fixed-point gradient estimation by Neu and
+            Szepesvari 2007.
+            XXX ajs 27/Oct/2020 grad_twopoint=False doesn't seem to work atm.
         verbose (bool): Print progress information
-    
+
     Returns:
-        None
+        (numpy array): State-action reward function
     """
 
-    num_states = len(env.states)
-    num_actions = len(env.actions)
+    _env = copy.deepcopy(env)
+    num_states = len(_env.states)
+    num_actions = len(_env.actions)
+
+    # Reset objective function call counts
+    nll_sa._call_count = 0
 
     # Use scipy minimization procedures
     min_fn = minimize
 
     # Estimate gradient from two-point NLL numerical difference?
     # Seems to help with convergence for some problems
-    grad_twopoint = True
     if grad_twopoint:
         jac = "2-point"
         nll_only = True
     else:
         jac = True
         nll_only = False
-    rescale_grad = False
     opt_method = "L-BFGS-B"
-
-    # Reset objective function call counts
-    nll_sa._call_count = 0
 
     if verbose:
         print("Optimizing state-action rewards")
-    res = min_fn(
+    options = dict(disp=True)
+    if max_iterations is not None:
+        options["maxiter"] = max_iterations
+    res = minimize(
         nll_sa,
         np.zeros(num_states * num_actions) + np.mean(env.reward_range),
         args=(
             env,
             boltzmann_scale,
             rollouts,
-            num_rollouts,
+            max_path_length,
+            num_rollouts_per_sa_pair,
             nll_only,
-            rescale_grad,
-            True
-            # False,  # verbose,
+            verbose,
         ),
         method=opt_method,
         jac=jac,
         bounds=tuple(env.reward_range for _ in range(num_states * num_actions)),
-        options=dict(disp=True),
+        options=options,
     )
 
-    print("Done")
+    if not res.success:
+        warnings.warn("Minimization did not succeed")
+        print(res)
+
+    theta_sa = res.x.reshape((num_states, num_actions))
+    if verbose:
+        print(res)
+        print(
+            "Completed optimization after {} iterations, NLL = {}".format(
+                res.nit, res.fun
+            )
+        )
+        print("theta_sa = {}".format(theta_sa))
+
+    return theta_sa
 
 
 # # Algorithm from https://github.com/Riley16/scot/blob/master/algorithms/max_likelihood_irl.py for
@@ -346,23 +361,75 @@ def main():
     """Main function"""
 
     # Test functionality
-    from explicit_env.envs.explicit_frozen_lake import ExplicitFrozenLakeEnv
     from explicit_env.envs.explicit_nchain import ExplicitNChainEnv
     from explicit_env.soln import q_value_iteration, OptimalPolicy
+    from unimodal_irl.metrics import ile_evd
 
-    env = ExplicitFrozenLakeEnv()
-    env._gamma = 0.1
-    # env = ExplicitNChainEnv()
-    # env._gamma = 0.99
+    env = ExplicitNChainEnv()
+    env._gamma = 0.99
+    rsa = env.state_action_rewards
     pi = OptimalPolicy(q_value_iteration(env))
+    max_path_length = 30
 
-    # # Get rollouts
-    # num_rollouts = 20
-    # rollouts = pi.get_rollouts(
-    #     env, num_rollouts, max_path_length=30
-    # )
-    # reward_weights = bv_maxlikelihood_irl(env, rollouts)
-    # print(reward_weights)
+    # Get rollouts
+    # TODO ajs 27/Oct/2020 Using Neu gradient estimation doesn't seem to work
+    num_rollouts = 200
+    rollouts = pi.get_rollouts(env, num_rollouts, max_path_length=max_path_length)
+    rsa_learned = bv_maxlikelihood_irl_take2(
+        env,
+        rollouts,
+        max_path_length=max_path_length,
+        num_rollouts_per_sa_pair=10,
+        grad_twopoint=True,
+        verbose=False,
+    )
+
+    print("------------------------------------------")
+    print("GT Reward R(s, a) = ")
+    print(rsa)
+
+    print()
+    print("Learned Reward R(s, a) = ")
+    print(rsa_learned)
+
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, sharey=True, gridspec_kw=dict(wspace=0.01))
+    plt.set_cmap("Greys_r")
+
+    plt.sca(axes[0])
+    plt.imshow(
+        rsa, vmin=env.reward_range[0], vmax=env.reward_range[1],
+    )
+    plt.title(r"$R_{GT}(s, a)$")
+    plt.ylabel("States s")
+    plt.xlabel("Actions a")
+
+    plt.sca(axes[1])
+    plt.imshow(rsa_learned, vmin=env.reward_range[0], vmax=env.reward_range[1])
+    plt.title(r"$R_{L}(s, a)$")
+    plt.xlabel("Actions a")
+
+    plt.colorbar()
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+    # UP TO HERE TODO ajs 27/Oct/2020
+    # XXX In this case, we require an optimal stochastic policy with q_precision set
+    # (and stochastic policy evaluation) to get a realistic ILE, EVD. Otherwise the
+    # learned policy defaults to always going right (the optimal policy) due to a float
+    # rounding error, and choosing the 0th action amongst many equally good actions.
+    # Not sure how to handle these settings elegantly when calling ile_evd()
+    # Need to decide on a modified API for ile_evd()
+    env_irl = copy.deepcopy(env)
+    env_irl._state_action_rewards = rsa_learned
+    ile, evd = ile_evd(env, env_irl, verbose=True)
+
+    print(f"ILE = {ile}")
+    print(f"EVD = {evd}")
+
+    print("Done")
 
 
 if __name__ == "__main__":
