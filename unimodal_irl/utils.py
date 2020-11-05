@@ -152,16 +152,12 @@ def empirical_feature_expectations(env, rollouts, weights=None):
     phibar_sas = np.zeros(env.t_mat.shape)
     for r, w in zip(rollouts, weights):
 
-        # if env.state_rewards is not None:
         for t, (s1, _) in enumerate(r):
             phibar_s[s1] += w * (env.gamma ** t)
 
-        # if env.state_action_rewards is not None:
         for t, (s1, a) in enumerate(r[:-1]):
             phibar_sa[s1, a] += w * (env.gamma ** t)
 
-        # if env.state_action_state_rewards is not None:
-        for t, (s1, a) in enumerate(r[:-1]):
             s2 = r[t + 1][0]
             phibar_sas[s1, a, s2] += w * (env.gamma ** t)
 
