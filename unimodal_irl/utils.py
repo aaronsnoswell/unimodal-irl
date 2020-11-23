@@ -4,15 +4,14 @@ import gym
 import copy
 import warnings
 import numpy as np
-import itertools as it
-
-from scipy.optimize import OptimizeResult
 
 from explicit_env.envs.utils import compute_parents_children
 
+from mdp_extras import DiscreteExplicitExtras, Indicator, Disjoint, Linear
 
-def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
-    """Pads a terminal MDP, adding a dummy state and action
+
+def padding_trick(xtr, phi, r, rollouts=None, max_length=None):
+    """Apply padding trick, adding an auxiliary state and action to an MDP
     
     We gain a O(|S|) space and time efficiency improvement with our MaxEnt IRL algorithm
     for MDPs with terminal states by transforming them to have no terminal states. This
@@ -20,82 +19,81 @@ def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
     upper length.
     
     Args:
-        env (.explicit.IExplicitEnv) Explicit MDP environment
+        xtr (DiscreteExplicitExtras): Extras object
+        phi (Indicator): Indicator/Disjoint feature function
+        r (Linear): Linear reward function
         
         rollouts (list): List of [(s, a), (s, a), ..., (s, None)] rollouts to pad
         max_length (int): Optional maximum length to pad to, otherwise paths are padded
             to match the length of the longest path
-    
+        
     Returns:
-        (.explicit.IExplicitEnv) Explicit MDP environment, padded with a dummy
-            state and action so that it has no terminal states.
-        (list): List of rollouts, padded to max_length
+        (DiscreteExplicitExtras): Extras object, padded with auxiliary state and action
+        (Indicator): Indicator feature function, padded with auxiliary state and action
+        (Linear): Linear reward function, padded with auxiliary state and action
+        
+        (list): List of rollouts, padded to max_length. Only returned if rollouts is not
+            None
     """
 
-    env = copy.deepcopy(env)
+    t_mat = np.pad(xtr.t_mat, (0, 1), mode="constant")
+    s_aux = t_mat.shape[0] - 1
+    a_aux = t_mat.shape[1] - 1
 
-    # Add an extra state and action to the dynamics
-    t_mat2 = np.pad(env.t_mat, (0, 1), mode="constant")
-    p0s2 = np.pad(env.p0s, (0, 1), mode="constant")
-    terminal_state_mask2 = np.pad(env.terminal_state_mask, (0, 1), mode="constant")
-    states2 = np.arange(t_mat2.shape[0])
-    actions2 = np.arange(t_mat2.shape[1])
+    p0s = np.pad(xtr.p0s, (0, 1), mode="constant")
+    states = np.arange(t_mat.shape[0])
+    actions = np.arange(t_mat.shape[1])
 
-    state_rewards2 = None
-    state_action_rewards2 = None
-    state_action_state_rewards2 = None
-
-    # Dummy state is absorbing
-    t_mat2[-1, -1, -1] = 1
+    # Auxiliary state is absorbing
+    t_mat[-1, -1, -1] = 1
 
     # Terminal states are no longer absorbing
-    for terminal_state in np.argwhere(env.terminal_state_mask):
-        t_mat2[terminal_state, :, terminal_state] = 0
-    terminal_state_mask2 = np.zeros(t_mat2.shape[0])
+    for terminal_state in np.argwhere(xtr.terminal_state_mask):
+        t_mat[terminal_state, :, terminal_state] = 0
+    terminal_state_mask = np.zeros(t_mat.shape[0])
 
-    # Dummy state reachable anywhere if dummy action is taken
-    t_mat2[:, -1, -1] = 1
+    # Auxiliary state reachable anywhere if auxiliary action is taken
+    t_mat[:, -1, -1] = 1
 
-    # Dummy state doesn't modify rewards
-    if env.state_rewards is not None:
-        state_rewards2 = np.pad(env.state_rewards, (0, 1), mode="constant")
-        state_rewards2[-1] = 0
-    if env.state_action_rewards is not None:
-        state_action_rewards2 = np.pad(
-            env.state_action_rewards, (0, 1), mode="constant"
-        )
-        state_action_rewards2[:, -1] = 0
-    if env.state_action_state_rewards is not None:
-        state_action_state_rewards2 = np.pad(
-            env.state_action_state_rewards, (0, 1), mode="constant"
-        )
-        state_action_state_rewards2[:, 0:-1, -1] = -np.inf  # Illegal transition
-        state_action_state_rewards2[:, -1, -1] = 0
-
-    # Overwrite environment properties
-    env._states = states2
-    env._actions = actions2
-    env._t_mat = t_mat2
-    env._p0s = p0s2
-    env._terminal_state_mask = terminal_state_mask2
-    env.observation_space = gym.spaces.Discrete(env.observation_space.n + 1)
-    env.action_space = gym.spaces.Discrete(env.action_space.n + 1)
-
-    # Update parent and children mappings
-    env._parents, env._children = compute_parents_children(
-        env.t_mat, env.terminal_state_mask
+    xtr2 = DiscreteExplicitExtras(
+        states, actions, p0s, t_mat, terminal_state_mask, xtr.gamma
     )
 
-    if env.state_rewards is not None:
-        env._state_rewards = state_rewards2
-    if env.state_action_rewards is not None:
-        env._state_action_rewards = state_action_rewards2
-    if env.state_action_state_rewards is not None:
-        env._state_action_state_rewards = state_action_state_rewards2
+    # Auxiliary state, action don't modify rewards
+    if isinstance(phi, Indicator):
+        # Pad an indicator feature function and linear reward function
+        rs, rsa, rsas = r.structured(xtr, phi)
+        rs = np.pad(rs, (0, 1), mode="constant")
+        rs[-1] = 0
 
-    # Finally, pad the trajectories
+        rsa = np.pad(rsa, (0, 1), mode="constant")
+        rsa[:, -1] = 0
+
+        rsas = np.pad(rsas, (0, 1), mode="constant")
+        rsas[:, 0:-1, -1] = -np.inf  # Illegal transition
+        rsas[:, -1, -1] = 0
+
+        if phi.type == Indicator.Type.OBSERVATION:
+            r2 = Linear(rs.flatten())
+        elif phi.type == Indicator.Type.OBSERVATION_ACTION:
+            r2 = Linear(rsa.flatten())
+        elif phi.type == Indicator.Type.OBSERVATION_ACTION_OBSERVATION:
+            r2 = Linear(rsas.flatten())
+        else:
+            raise ValueError
+
+        phi2 = Indicator(phi.type, xtr2)
+
+    elif isinstance(phi, Disjoint):
+        # Pad a disjoint feature function and linear reward function
+
+        phi2 = phi
+        r2 = r
+    else:
+        raise ValueError
+
     if rollouts is None:
-        return env
+        return xtr2, phi2, r2
     else:
         # Measure the length of the rollouts
         r_len = [len(r) for r in rollouts]
@@ -107,62 +105,15 @@ def pad_terminal_mdp(env, *, rollouts=None, max_length=None):
             )
             max_length = max(r_len)
 
-        _rollouts = []
-        dummy_state = t_mat2.shape[0] - 1
-        dummy_action = t_mat2.shape[1] - 1
-        for r in rollouts:
-            _r = r.copy()
-            if len(_r) < max_length:
-                s, _ = _r[-1]
-                _r[-1] = (s, dummy_action)
-                while len(_r) != max_length - 1:
-                    _r.append((dummy_state, dummy_action))
-                _r.append((dummy_state, None))
-            _rollouts.append(_r)
-        return env, _rollouts
+        # Finally, pad the trajectories out to the maximum length
+        rollouts2 = []
+        for rollout in rollouts:
+            rollout2 = rollout.copy()
+            if len(rollout2) < max_length:
+                rollout2[-1] = (rollout2[-1][0], a_aux)
+                while len(rollout2) != max_length - 1:
+                    rollout2.append((s_aux, a_aux))
+                rollout2.append((s_aux, None))
+            rollouts2.append(rollout2)
 
-
-def empirical_feature_expectations(env, rollouts, weights=None):
-    """Find empirical discounted feature expectations
-    
-    Args:
-        env (unimodal_irl.envs.explicit.IExplicitEnv): Environment defining dynamics
-            and discount factor
-        rollouts (list): List of [(s, a), (s, a), ..., (s, None)] trajectories
-        weights (numpy array): Optional list of weights that can augment the path
-            feature expectations. Defaults to uniform.
-    
-    Returns:
-        (numpy array): |S| array of state marginals
-        (numpy array): |S|x|A| array of state-action marginals
-        (numpy array): |S|x|A|x|S| array of state-action-state marginals
-    """
-
-    if weights is None:
-        # Default to uniform path weighting
-        weights = np.ones(len(rollouts))
-    else:
-        assert len(weights) == len(
-            rollouts
-        ), f"Path weights are not correct size, should be {len(rollouts)}, are {len(weights)}"
-
-    # Find discounted feature expectations
-    phibar_s = np.zeros(env.t_mat.shape[0])
-    phibar_sa = np.zeros(env.t_mat.shape[0 : 1 + 1])
-    phibar_sas = np.zeros(env.t_mat.shape)
-    for r, w in zip(rollouts, weights):
-
-        for t, (s1, _) in enumerate(r):
-            phibar_s[s1] += w * (env.gamma ** t)
-
-        for t, (s1, a) in enumerate(r[:-1]):
-            phibar_sa[s1, a] += w * (env.gamma ** t)
-
-            s2 = r[t + 1][0]
-            phibar_sas[s1, a, s2] += w * (env.gamma ** t)
-
-    phibar_s /= np.sum(weights)
-    phibar_sa /= np.sum(weights)
-    phibar_sas /= np.sum(weights)
-
-    return phibar_s, phibar_sa, phibar_sas
+        return xtr2, phi2, r2, rollouts2
