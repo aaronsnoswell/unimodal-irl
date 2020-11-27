@@ -1,18 +1,11 @@
 """Implements Maximum Entropy IRL from my thesis"""
 
-import copy
-import warnings
 import numpy as np
 from numba import jit
 from scipy.optimize import minimize
 
 
-from mdp_extras import (
-    Linear,
-    Disjoint,
-)
-
-from unimodal_irl.utils import empirical_feature_expectations
+from mdp_extras import Linear, Disjoint, trajectory_reward
 
 
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
@@ -142,31 +135,6 @@ def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     return beta
 
 
-def partition_log(L, alpha_log, with_dummy_state=True):
-    """Compute the partition function
-    
-    Args:
-        L (int): Maximum path length
-        alpha_log (numpy array): |S|xL backward message variable in log space
-        
-        with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
-            to a dummy state which is used for MDP padding
-        
-    Returns:
-        (float): Partition function value
-    """
-
-    # If the dummy state is included, don't include it in the partition
-    if with_dummy_state:
-        alpha_log = alpha_log[0:-1, :]
-
-    # Find maximum value
-    m = np.max(alpha_log[:, 0:L])
-
-    # Compute partition in log space
-    return m + np.log(np.sum(np.exp(alpha_log[:, 0:L] - m)))
-
-
 @jit(nopython=True)
 def nb_marginals_log(
     L, t_mat, alpha_log, beta_log, Z_theta_log, gamma=1.0, rsa=None, rsas=None
@@ -259,251 +227,120 @@ def nb_marginals_log(
     return pts, ptsa, ptsas
 
 
-def env_solve(env, L, with_dummy_state=True):
-    """Convenience method to solve an environment for marginals
-    
-    TODO ajs Requires re-factor
+def partition_log(L, alpha_log, with_dummy_state=True):
+    """Compute the partition function
     
     Args:
-        env (.envs.explicit.IExplicitEnv) Environment to solve
-        L (int): Max path length
-        with_dummy_state (bool): Indicates if the environment has been padded with a
-            dummy state and action, or not
-    
+        L (int): Maximum path length
+        alpha_log (numpy array): |S|xL backward message variable in log space
+        
+        with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
+            to a dummy state which is used for MDP padding
+        
     Returns:
-        (numpy array): |S|xL array of state marginals in log space
-        (numpy array): |S|x|A|xL array of state-action marginals in log space
-        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
-        (float): Partition value in log space
+        (float): Partition function value
     """
 
-    # Numba has trouble typing these arguments to the forward/backward functions below.
-    # We manually convert them here to avoid typing issues at JIT compile time
-    rs = env.state_rewards
-    if rs is None:
-        rs = np.zeros(env.t_mat.shape[0], dtype=np.float)
+    # If the dummy state is included, don't include it in the partition
+    if with_dummy_state:
+        alpha_log = alpha_log[0:-1, :]
 
-    rsa = env.state_action_rewards
-    if rsa is None:
-        rsa = np.zeros(env.t_mat.shape[0:2], dtype=np.float)
+    # Find maximum value
+    m = np.max(alpha_log[:, 0:L])
 
-    rsas = env.state_action_state_rewards
-    if rsas is None:
-        rsas = np.zeros(env.t_mat.shape[0:3], dtype=np.float)
-
-    # If this call fails, check that rewards are all dtype float, not int!
-    alpha_log = nb_backward_pass_log(
-        env.p0s, L, env.t_mat, gamma=env.gamma, rs=rs, rsa=rsa, rsas=rsas,
-    )
-    beta_log = nb_forward_pass_log(
-        L, env.t_mat, gamma=env.gamma, rs=rs, rsa=rsa, rsas=rsas,
-    )
-    Z_theta_log = partition_log(L, alpha_log, with_dummy_state=with_dummy_state)
-    pts_log, ptsa_log, ptsas_log = nb_marginals_log(
-        L,
-        env.t_mat,
-        alpha_log,
-        beta_log,
-        Z_theta_log,
-        gamma=env.gamma,
-        rsa=rsa,
-        rsas=rsas,
-    )
-    return pts_log, ptsa_log, ptsas_log, Z_theta_log
-
-
-def maxent_log_partition(
-    env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
-):
-    """Find Maximum Entropy model log partition value
-    
-    TODO ajs Requires re-factor
-    
-    Args:
-        env (explicit_env.IExplicitEnv): Environment defining dynamics
-        max_path_length (int): Maximum path length
-        theta_s (numpy array): |S| array of state reward parameters
-        theta_sa (numpy array): |S|x|A| array of state-action reward parameters
-        theta_sas (numpy array): |S|x|A|x|S| array of state-action-state reward parameters
-        with_dummy_state (bool): True if the environment is padded
-    
-    Returns:
-        (float): Log partition value
-    """
-
-    # Copy the environment so we don't modify it
-    env = copy.deepcopy(env)
-
-    num_states = len(env.states)
-    num_actions = len(env.actions)
-
-    if theta_s is None:
-        theta_s = np.zeros(num_states)
-    if theta_sa is None:
-        theta_sa = np.zeros((num_states, num_actions))
-    if theta_sas is None:
-        theta_sas = np.zeros((num_states, num_actions, num_states))
-
-    assert theta_s.shape == tuple(
-        (env.t_mat.shape[0],)
-    ), "Passed state rewards do not match environment state dimension"
-    assert theta_sa.shape == tuple(
-        env.t_mat.shape[0:2]
-    ), "Passed state-action rewards do not match environment state-action dimension(s)"
-    assert (
-        theta_sas.shape == env.t_mat.shape
-    ), "Passed state-action-state rewards do not match environment state-action-state dimension(s)"
-
-    env._state_rewards = theta_s
-    env._state_action_rewards = theta_sa
-    env._state_action_state_rewards = theta_sas
-
-    with np.errstate(over="raise"):
-        _, _, _, Z_log = env_solve(
-            env, max_path_length, with_dummy_state=with_dummy_state
-        )
-
-    return Z_log
+    # Compute partition in log space
+    return m + np.log(np.sum(np.exp(alpha_log[:, 0:L] - m)))
 
 
 def maxent_log_likelihood(
-    rollouts,
-    env,
-    theta_s=None,
-    theta_sa=None,
-    theta_sas=None,
-    with_dummy_state=False,
-    path_weights=None,
+    xtr, phi, reward, rollouts, with_dummy_state=False, weights=None
 ):
-    """Compute the log-likelihood of demonstrations under a MaxEnt model
+    """
+    Find the avergae log likelihood of a set of paths under a MaxEnt model
     
-    TODO ajs Requires re-factor
+    That is,
+    
+    \hat{\ell}(\theta) = \E_{\Data}[ \log p(\tau \mid \theta)
+    
+    To get the total log-likelihood of the dataset (i.e. gets larger as you add more
+    data), multiply the value returned by this function with len(rollouts).
+    
+    To get the total data likelihood, take the exponent of that value.
     
     Args:
-        rollouts (list): List of list of state-action tuples
-        env (explicit_env.IExplicitEnv): Environment to use
-        theta_s (numpy array): State reward weights
-        theta_sa (numpy array): State-action reward weights
-        theta_sas (numpy array): State-action-state reward weights
-        with_dummy_state (bool): Have the MDP and rollouts been padded with a dummy
-            state using utils.pad_terminal_mdp()?
-        path_weights (numpy array): Optional list of path weights - used for performing
-            weighted moment matching.
-    
+        xtr (mdp_extras.DiscreteExplicitExtras): MDP extras
+        phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
+            parameters.
+        reward (mdp_extras.RewardFunction): Reward function
+        rollouts (list): List of rollouts, each a list of (s, a) tuples
+        with_dummy_state (bool): True if the xtr, phi definitions have been padded with
+            a dummy state using unimodal_irl.utils.padding_trick(). This is required
+            if the MDP has terminal states.
+        
     Returns:
-        (float): Log likelihood of trained demonstration data under the given reward
-            parameters
+        (float): Average log-likelihood of the paths in rollouts under the given reward
     """
+    return np.average(
+        maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state),
+        weights=weights,
+    )
 
-    num_states = len(env.states)
-    num_actions = len(env.actions)
+
+def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
+    """Compute log probability of a set of paths
+    
+    Args:
+        xtr (mdp_extras.DiscreteExplicitExtras): MDP extras
+        phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
+            parameters.
+        reward (mdp_extras.RewardFunction): Reward function
+        rollouts (list): List of rollouts, each a list of (s, a) tuples
+        with_dummy_state (bool): True if the xtr, phi definitions have been padded with
+            a dummy state using unimodal_irl.utils.padding_trick(). This is required
+            if the MDP has terminal states.
+        
+    Returns:
+        (list): List of log-probabilities under a MaxEnt model of paths
+    """
 
     # Find max path length
     if len(rollouts) == 1:
-        max_path_length = min_path_length = len(rollouts[0])
+        max_path_length = len(rollouts[0])
     else:
         max_path_length = max(*[len(r) for r in rollouts])
 
-    if theta_s is None:
-        theta_s = np.zeros(num_states)
-    if theta_sa is None:
-        theta_sa = np.zeros(num_states * num_actions)
-    if theta_sas is None:
-        theta_sas = np.zeros(num_states * num_actions * num_states)
+    rs, rsa, rsas = reward.structured(xtr, phi)
 
-    Z_log = maxent_log_partition(
-        env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
-    )
+    with np.errstate(over="raise"):
 
-    # Find discounted feature expectations
-    phibar_s, phibar_sa, phibar_sas = empirical_feature_expectations(
-        env, rollouts, weights=path_weights
-    )
-
-    ll = (
-        theta_s @ phibar_s.flatten()
-        + theta_sa @ phibar_sa.flatten()
-        + theta_sas @ phibar_sas.flatten()
-        + np.average(
-            [env.path_log_probability(p) for p in rollouts],
-            weights=path_weights / np.sum(path_weights),
+        # Compute backward message
+        alpha_log = nb_backward_pass_log(
+            xtr.p0s,
+            max_path_length,
+            xtr.t_mat,
+            gamma=xtr.gamma,
+            rs=rs,
+            rsa=rsa,
+            rsas=rsas,
         )
-        - Z_log
-    )
 
-    return ll
+        # Compute partition value
+        Z_theta_log = partition_log(
+            max_path_length, alpha_log, with_dummy_state=with_dummy_state
+        )
 
-
-def r_tau(env, tau):
-    """Get discounted reward of a trajectory in an environment
-    
-    TODO ajs Requires re-factor
-    
-    Args:
-        env (explicit_env.IExplicitEnv): Environment defining rewards and discount
-        tau (list): State-action trajectory
-    """
-    r_tau = 0
-    if env.state_rewards is not None:
-        for t, (s, _) in enumerate(tau):
-            r_tau += (env.gamma ** t) * env.state_rewards[s]
-    if env.state_action_rewards is not None:
-        for t, (s, a) in enumerate(tau[:-1]):
-            r_tau += (env.gamma ** t) * env.state_action_rewards[s, a]
-    if env.state_action_state_rewards is not None:
-        for t, ((s1, a), (s2, _)) in enumerate(zip(tau[:-2], tau[1:-1])):
-            r_tau += (env.gamma ** t) * env.state_action_state_rewards[s1, a, s2]
-    return r_tau
-
-
-def maxent_path_logprobs(
-    env, rollouts, theta_s=None, theta_sa=None, theta_sas=None, with_dummy_state=False,
-):
-    """Find MaxEnt log-probability of each path in a list of paths
-    
-    TODO ajs Requires re-factor
-    
-    Args:
-        env (explicit_env.IExplicitEnv): Environment defining dynamics
-        rollouts (list): List of state-action rollouts
-        theta_s (numpy array): |S| array of state reward parameters
-        theta_sa (numpy array): |S|x|A| array of state-action reward parameters
-        theta_sas (numpy array): |S|x|A|x|S| array of state-action-state reward parameters
-    
-    Returns:
-        (list): List of log-probabilities for each path in rollouts
-    """
-
-    env = copy.deepcopy(env)
-
-    num_states = len(env.states)
-    num_actions = len(env.actions)
-
-    # Find max path length
-    if len(rollouts) == 1:
-        max_path_length = min_path_length = len(rollouts[0])
-    else:
-        max_path_length = max(*[len(r) for r in rollouts])
-
-    if theta_s is None:
-        theta_s = np.zeros(num_states)
-    if theta_sa is None:
-        theta_sa = np.zeros((num_states, num_actions))
-    if theta_sas is None:
-        theta_sas = np.zeros((num_states, num_actions, num_states))
-
-    Z_log = maxent_log_partition(
-        env, max_path_length, theta_s, theta_sa, theta_sas, with_dummy_state
-    )
-
-    env._state_rewards = theta_s
-    env._state_action_rewards = theta_sa
-    env._state_action_state_rewards = theta_sas
+    print("Here")
 
     path_log_probs = (
-        np.array([env.path_log_probability(r) + r_tau(env, r) for r in rollouts])
-        - Z_log
+        np.array(
+            [
+                xtr.path_log_probability(p) + trajectory_reward(xtr, phi, reward, p)
+                for p in rollouts
+            ]
+        )
+        - Z_theta_log
     )
+
     return path_log_probs
 
 
@@ -512,9 +349,13 @@ def sw_maxent_irl(
 ):
     """Compute NLL and gradient for minimization
     
+    N.b. the computed NLL here doesn't include the contribution from the MDP dynamics
+    for each path - this term is independent of the parameter x, so doesn't affect the
+    optimization result.
+    
     Args:
         x (numpy array): Current reward function parameter vector estimate
-        xtr (mdp_extras.DiscreteExplicitExtras): Extas object for the MDP being
+        xtr (mdp_extras.DiscreteExplicitExtras): Extras object for the MDP being
             optimized
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
