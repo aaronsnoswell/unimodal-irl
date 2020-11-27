@@ -256,7 +256,7 @@ def maxent_log_likelihood(
     xtr, phi, reward, rollouts, with_dummy_state=False, weights=None
 ):
     """
-    Find the avergae log likelihood of a set of paths under a MaxEnt model
+    Find the average log likelihood of a set of paths under a MaxEnt model
     
     That is,
     
@@ -347,7 +347,10 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
 def sw_maxent_irl(
     x, xtr, phi, phi_bar, max_path_length, with_dummy_state, nll_only=False
 ):
-    """Compute NLL and gradient for minimization
+    """Maximum Entropy IRL using our exact algorithm
+    
+    Returns NLL and NLL gradient of the demonstration data under the proposed reward
+    parameters x.
     
     N.b. the computed NLL here doesn't include the contribution from the MDP dynamics
     for each path - this term is independent of the parameter x, so doesn't affect the
@@ -402,11 +405,10 @@ def sw_maxent_irl(
     nll = Z_theta_log - x @ phi_bar
 
     if nll_only:
-
         return nll
-
     else:
 
+        # Compute gradient
         with np.errstate(over="raise"):
 
             # Compute forward message
