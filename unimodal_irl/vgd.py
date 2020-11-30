@@ -82,6 +82,7 @@ def vgd(objective, x0, args=(), **kwargs):
     iter_best = 0
     x_best = x.copy()
     fun_best = np.inf
+    jac_best = np.zeros_like(x)
 
     nit = 1
     nfev = 1
@@ -133,6 +134,7 @@ def vgd(objective, x0, args=(), **kwargs):
             iter_best = iter
             x_best = x.copy()
             fun_best = fun
+            jac_best = jac
 
         if bounds is not None:
             # Clip to bounds
@@ -194,8 +196,8 @@ def vgd(objective, x0, args=(), **kwargs):
             "success": success,
             "status": status,
             "message": message,
-            "fun": fun,
-            "jac": jac,
+            "fun": fun_best,
+            "jac": jac_best,
             "nfev": nfev,
             "nit": nit,
             "x_vals": x_vals,
