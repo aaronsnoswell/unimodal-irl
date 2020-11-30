@@ -6,62 +6,13 @@ import itertools as it
 
 from numba import jit
 
-from scipy.optimize import minimize
+from explicit_env.soln import BoltzmannExplorationPolicy
 
-from explicit_env.soln import BoltzmannExplorationPolicy, OptimalPolicy
-
-from explicit_env.soln import value_iteration, q_value_iteration
-from unimodal_irl.utils import empirical_feature_expectations, minimize_vgd
-
-
-def smq_value_iteration(env, beta=0.5, eps=1e-6, verbose=False, max_iter=None):
-    """Value iteration to find the SoftMax-optimal state-action value function
-    
-    This bellman recursion is defined in Section 3 of Apprenticeship Learning about
-    Multiple Intentions by Babes-Vroman et al. 2011
-    
-    http://www.icml-2011.org/papers/478_icmlpaper.pdf
-    
-    Args:
-        env (.envs.explicit.IExplicitEnv) Explicit Gym environment
-        
-        beta (float): Boltzmann exploration policy scale parameter
-        eps (float): Value convergence tolerance
-        verbose (bool): Extra logging
-        max_iter (int): If provided, iteration will terminate regardless of convergence
-            after this many iterations.
-    
-    Returns:
-        (numpy array): |S|x|A| matrix of state-action values
-    """
-
-    rs = env.state_rewards
-    if rs is None:
-        rs = np.zeros(env.t_mat.shape[0], dtype=np.float)
-
-    rsa = env.state_action_rewards
-    if rsa is None:
-        rsa = np.zeros(env.t_mat.shape[0:2], dtype=np.float)
-
-    rsas = env.state_action_state_rewards
-    if rsas is None:
-        rsas = np.zeros(env.t_mat.shape[0:3], dtype=np.float)
-
-    return _nb_smq_value_iteration(
-        env.t_mat,
-        env.gamma,
-        rs,
-        rsa,
-        rsas,
-        beta=beta,
-        eps=eps,
-        verbose=verbose,
-        max_iter=max_iter,
-    )
+from mdp_extras import Linear, q_vi, q_grad_fpi
 
 
 @jit(nopython=True)
-def _nb_smq_value_iteration(
+def nb_smq_value_iteration(
     t_mat, gamma, rs, rsa, rsas, beta=0.5, eps=1e-6, verbose=False, max_iter=None
 ):
     """Value iteration to find the SoftMax-optimal state-action value function
@@ -138,329 +89,78 @@ def _nb_smq_value_iteration(
     return q_value_fn
 
 
-def nll_sa(
-    theta_sa,
-    env,
-    rollouts,
-    boltzmann_scale=0.5,
-    qge="fpi",
-    qge_fpi_tol=1e-5,
-    qge_max_path_length=None,
-    qge_rollouts_per_sa=100,
-    nll_only=False,
-    verbose=False,
+def bv_maxlikelihood_irl(
+    x, xtr, phi, rollouts, boltzmann_scale=0.5, qge_tol=1e-3, nll_only=False
 ):
-    """Compute Negative Log Likelihood (and gradient) for ML-IRL
+    """Compute the average Negative Log Likelihood (and gradient) for ML-IRL
+    
+    This method is biased to prefer shorter paths through any MDP.
     
     TODO ajs 29/Oct/2020 Support SoftMax Q function from Babes-Vroman 2011 paper via
-        smq_value_iteration()
+        nb_smq_value_iteration()
     
     Args:
-        theta_sa (numpy array): Flat |S|x|A| reward parameter weights
-        env (IExplicitEnv): Environment
+        x (numpy array): Current reward function parameter vector estimate
+        xtr (mdp_extras.DiscreteExplicitExtras): Extras object for the MDP being
+            optimized
+        phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
+            parameters. We require len(phi) == len(x).
         rollouts (list): List of (s, a) rollouts.
         
-        boltzmann_scale (float):
-        qge (str): Method of Q-Value Gradient Estimation, one of
-            'fpi' - Use fixed-point iteration
-            'sim' - Use simulation (sample from optimal policy)
-        qge_fpi_tol (float): Convergence threshold for Fixed Point Iteration, only used
-            if qge == 'fpi'.
-        qge_max_path_length (int): Maximum path length to sample. Only used if qge == 'sim'
-            and only needed if the environment is non-episodic.
-        qge_rollouts_per_sa (int): Number of rollouts to sample for each (s, a) pair - only
-            used if qge == 'sim'.
-        nll_only (bool): If true, skip gradient estimation and only compute NLL.
-        verbose (bool): Log status information
+        boltzmann_scale (float): Optimality parameter for Boltzmann policy. Babes-Vroman
+            use 0.5. Values closer to 1.0 cause slower convergence, but values closer to
+            0 model the demonstrations as being non-expert. Empirically I find 0.2 works
+            well.
+        qge_tol (float): Tolerance for q-gradient estimation.
+        nll_only (bool): If true, only return NLL
     """
 
-    if not nll_only:
-        assert qge in ["fpi", "sim"], f"Invalid value '{qge}' passed for qge"
-
-    nll_sa._call_count += 1
-    if verbose:
-        print("Obj#{}".format(nll_sa._call_count))
-        print(theta_sa)
-
-    feature_dim = len(env.states) * len(env.actions)
-
     # Compute Q*, pi* for current reward guess
-    env._state_action_rewards = theta_sa.reshape(len(env.states), len(env.actions))
-    q = q_value_iteration(env)
-    # q = smq_value_iteration(env, boltzmann_scale)
-    pi = BoltzmannExplorationPolicy(q, scale=boltzmann_scale)
+    reward = Linear(x)
+    q_star = q_vi(xtr, phi, reward)
+    # q_star = nb_smq_value_iteration(
+    #     xtr.t_mat, xtr.gamma, *reward.structured(xtr, phi), boltzmann_scale
+    # )
+    pi = BoltzmannExplorationPolicy(q_star, scale=boltzmann_scale)
 
     if not nll_only:
-        if qge == "fpi":
-            q_grad = q_grad_fpi(env, theta_sa, tol=qge_fpi_tol)
-        elif qge == "sim":
-            q_grad = q_grad_simulation(
-                env,
-                theta_sa,
-                rollouts_per_sa=qge_rollouts_per_sa,
-                max_rollout_length=qge_max_path_length,
-            )
-        else:
-            raise ValueError(f"Invalid value '{qge}' passed for qge")
+        # Get Q* gradient for current reward parameters
+        dq_dtheta = q_grad_fpi(reward.theta, xtr, phi, tol=qge_tol)
 
     # Sweep demonstrated state-action pairs
     nll = 0
-    nll_grad = np.zeros_like(theta_sa)
+    nll_grad = np.zeros_like(x)
+    num_sa_samples = 0
     for path in rollouts:
         for s, a in path[:-1]:
+            num_sa_samples += 1
             ell_theta = pi.prob_for_state_action(s, a)
 
             # Accumulate negative log likelihood of demonstration data
             nll += -1 * np.log(ell_theta)
 
             if not nll_only:
-                # Estimate gradient of negative log likelihood wrt. parameters
-                nll_grad += boltzmann_scale * (
-                    np.sum(
-                        [
-                            pi.prob_for_state_action(s, b) * q_grad[s, b, :]
-                            for b in env.actions
-                        ]
-                    )
-                    - q_grad[s, a, :]
+                expected_action_grad = np.sum(
+                    [
+                        pi.prob_for_state_action(s, b) * dq_dtheta[s, b, :]
+                        for b in xtr.actions
+                    ],
+                    axis=0,
                 )
+                dl_dtheta = boltzmann_scale * (
+                    expected_action_grad - dq_dtheta[s, a, :]
+                )
+                nll_grad += dl_dtheta
+
+    # Convert NLL and gradient to average, not sum
+    # This makes for consistent magnitude values regardless of dataset size
+    nll /= num_sa_samples
+    nll_grad /= num_sa_samples
 
     if nll_only:
         return nll
     else:
         return nll, nll_grad
-
-
-# Static objective function call count
-nll_sa._call_count = 0
-
-
-def q_grad_fpi(env, theta_sa, tol=1e-3):
-    """Estimate the Q-gradient with a Fixed Point Iteration
-    
-    This method uses a Fixed-Point estimate by Neu and Szepesvari 2007.
-    
-    C.f. https://github.com/Riley16/scot/blob/master/algorithms/max_likelihood_irl.py
-    for another attempted implementation that appears to adapt this FPI for state-only
-    features.
-    
-    Args:
-        env (IExplicitEnv): Environment
-        theta_sa (numpy array): Flat |S|x|A| reward parameter vector
-    
-    Returns:
-        (numpy array): |S|x|A|x(|S|x|A|) Array of partial derivatives δQ(s, a)/dθ
-    """
-
-    # Get optimal policy
-    env._state_action_rewards = theta_sa.reshape(len(env.states), len(env.actions))
-    q = q_value_iteration(env)
-    pi = OptimalPolicy(q)
-
-    def phi_sa(s, a):
-        ret = np.zeros_like(env.state_action_rewards)
-        ret[s, a] = 1.0
-        return ret.flatten()
-
-    feature_dim = len(env.states) * len(env.actions)
-
-    # Initialize starting point
-    dq_dtheta = np.zeros((len(env.states), len(env.actions), feature_dim))
-    for s in env.states:
-        for a in env.actions:
-            dq_dtheta[s, a, :] = phi_sa(s, a)
-
-    # Apply fixed point iteration
-    for iter in it.count():
-        # Use full-width backups
-        dq_dtheta_old = dq_dtheta.copy()
-        dq_dtheta[:, :, :] = 0.0
-        for s1 in env.states:
-            for a1 in env.actions:
-                dq_dtheta[s1, a1, :] = phi_sa(s1, a1)
-                for s2 in env.states:
-                    for a2 in env.actions:
-                        dq_dtheta[s1, a1, :] += (
-                            env.gamma
-                            * env.t_mat[s1, a1, s2]
-                            * pi.prob_for_state_action(s2, a2)
-                            * dq_dtheta_old[s2, a2, :]
-                        )
-                pass
-
-        delta = np.max(np.abs(dq_dtheta_old.flatten() - dq_dtheta.flatten()))
-
-        if delta <= tol:
-            break
-
-    return dq_dtheta
-
-
-def q_grad_simulation(env, theta_sa, rollouts_per_sa=100, max_rollout_length=None):
-    """Estimate the Q-gradient with simulation
-    
-    This method samples many rollouts from the optimal stationary stochastic policy for
-    every possible (s, a) pair.
-    
-    Args:
-        env (IExplicitEnv): Environment
-        theta_sa (numpy array): Flat |S|x|A| reward parameter vector
-        
-        rollouts_per_sa (int): Number of rollouts to sample for each (s, a) pair. If
-            the environment has deterministic dynamics, it's OK to set this to a small
-            number.
-        max_rollout_length (int): Maximum rollout length - only needed for non-episodic
-            MDPs.
-    
-    Returns:
-        (numpy array): |S|x|A|x(|S|x|A|) Array of partial derivatives δQ(s, a)/dθ
-    """
-
-    # Get optimal policy
-    env._state_action_rewards = theta_sa.reshape(len(env.states), len(env.actions))
-    q = q_value_iteration(env)
-    pi = OptimalPolicy(q, stochastic=True)
-
-    feature_dim = len(env.states) * len(env.actions)
-
-    # Calculate expected feature vector under pi for all starting state-action pairs
-    dq_dtheta = np.zeros((len(env.states), len(env.actions), feature_dim))
-    for s in env.states:
-        for a in env.actions:
-            # Start with desired state, action
-            forced_sa_rollouts = pi.get_rollouts(
-                env,
-                rollouts_per_sa,
-                max_path_length=max_rollout_length,
-                start_state=s,
-                start_action=a,
-            )
-            _, phi_sa, _ = empirical_feature_expectations(env, forced_sa_rollouts)
-            dq_dtheta[s, a, :] = phi_sa.flatten()
-
-    return dq_dtheta
-
-
-def bv_maxlikelihood_irl(
-    env,
-    rollouts,
-    boltzmann_scale=0.5,
-    max_iterations=None,
-    qge="fpi",
-    qge_fpi_tol=1e-5,
-    qge_max_path_length=None,
-    qge_rollouts_per_sa=100,
-    grad_twopoint=True,
-    verbose=False,
-):
-    """Find Reward function using Max Likelihood IRL
-
-    See: http://www.icml-2011.org/papers/478_icmlpaper.pdf
-    Also: https://arxiv.org/pdf/1202.1558.pdf
-    Also: https://arxiv.org/ftp/arxiv/papers/1206/1206.5264.pdf
-    Also: https://www.overleaf.com/project/5edf22df9b1f270001507c4d
-
-    Example implementation (this implementation gets the Softmax Q-function from the
-    Babes-Vroman paper wrong, but appears to get other details right like the gradient
-    estimation)
-    https://github.com/Riley16/scot/blob/master/algorithms/max_likelihood_irl.py
-
-    Args:
-        env (explicit_env.IExplicitEnv): Reward-less environment to solve for
-        rollouts (list): List of demonstration state-action rollouts
-
-        boltzmann_scale (float): Boltzmann policy scale parameter. Values -> infinity
-            leads to optimal policy, but no exploration.
-        max_iterations (int): Maximum number of optimization steps.
-        qge (str): Method of Q-Value Gradient Estimation (ignored if
-            grad_twopoint == True). Can be one of
-                'fpi' - Use fixed-point iteration
-                'sim' - Use simulation (sample from optimal policy)
-        qge_fpi_tol (float): Convergence threshold for Fixed Point Iteration, only used
-            if qge == 'fpi'.
-        qge_max_path_length (int): Maximum path length to sample. Only used if qge == 'sim'
-            and only needed if the environment is non-episodic.
-        qge_rollouts_per_sa (int): Number of rollouts to sample for each (s, a) pair - only
-            used if qge == 'sim'.
-        grad_twopoint (bool): If true, use two-point numerical difference gradient
-            estimation
-        verbose (bool): Print progress information
-
-    Returns:
-        (numpy array): State-action reward function
-    """
-
-    if not grad_twopoint:
-        assert qge in ["fpi", "sim"], f"Invalid value '{qge}' passed for qge"
-
-    _env = copy.deepcopy(env)
-    num_states = len(_env.states)
-    num_actions = len(_env.actions)
-
-    # Reset objective function call counts
-    nll_sa._call_count = 0
-
-    # Use scipy minimization procedures
-    min_fn = minimize
-    # min_fn = minimize_vgd
-
-    # Estimate gradient from two-point NLL numerical difference?
-    # Seems to help with convergence for some problems
-    if grad_twopoint:
-        jac = "2-point"
-        nll_only = True
-    else:
-        jac = True
-        nll_only = False
-    opt_method = "L-BFGS-B"
-    # opt_method = "CG"
-
-    if verbose:
-        print("Optimizing state-action rewards")
-
-    options = dict(disp=True)
-    if max_iterations is not None:
-        options["maxiter"] = max_iterations
-    # options["step_size"] = 1e-5
-
-    res = min_fn(
-        nll_sa,
-        # np.zeros(num_states * num_actions) + np.mean(env.reward_range),
-        np.random.uniform(
-            env.reward_range[0], env.reward_range[1], num_states * num_actions
-        ),
-        args=(
-            env,
-            rollouts,
-            boltzmann_scale,
-            qge,
-            qge_fpi_tol,
-            qge_max_path_length,
-            qge_rollouts_per_sa,
-            nll_only,
-            verbose,
-        ),
-        method=opt_method,
-        jac=jac,
-        bounds=tuple(env.reward_range for _ in range(num_states * num_actions)),
-        options=options,
-    )
-
-    if not res.success:
-        warnings.warn("Minimization did not succeed")
-        print(res)
-
-    theta_sa = res.x.reshape((num_states, num_actions))
-    if verbose:
-        print(res)
-        print(
-            "Completed optimization after {} iterations, NLL = {}".format(
-                res.nit, res.fun
-            )
-        )
-        print("theta_sa = {}".format(theta_sa))
-
-    return theta_sa
 
 
 def main():
