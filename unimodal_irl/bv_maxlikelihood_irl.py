@@ -165,77 +165,7 @@ def bv_maxlikelihood_irl(
 
 def main():
     """Main function"""
-
-    # Test functionality
-    from explicit_env.envs.explicit_nchain import ExplicitNChainEnv
-    from explicit_env.soln import q_value_iteration, OptimalPolicy
-    from unimodal_irl.metrics import ile_evd
-
-    env = ExplicitNChainEnv()
-    env._gamma = 0.99
-    rsa = env.state_action_rewards
-    pi = OptimalPolicy(q_value_iteration(env))
-    max_path_length = 30
-
-    # Get rollouts
-    # TODO ajs 27/Oct/2020 Using Neu gradient estimation doesn't seem to work
-    num_rollouts = 200
-    rollouts = pi.get_rollouts(env, num_rollouts, max_path_length=max_path_length)
-    rsa_learned = bv_maxlikelihood_irl_take2(
-        env,
-        rollouts,
-        max_path_length=max_path_length,
-        num_rollouts_per_sa_pair=10,
-        grad_twopoint=True,
-        verbose=False,
-    )
-
-    print("------------------------------------------")
-    print("GT Reward R(s, a) = ")
-    print(rsa)
-
-    print()
-    print("Learned Reward R(s, a) = ")
-    print(rsa_learned)
-
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(1, 2, sharey=True, gridspec_kw=dict(wspace=0.01))
-    plt.set_cmap("Greys_r")
-
-    plt.sca(axes[0])
-    plt.imshow(
-        rsa, vmin=env.reward_range[0], vmax=env.reward_range[1],
-    )
-    plt.title(r"$R_{GT}(s, a)$")
-    plt.ylabel("States s")
-    plt.xlabel("Actions a")
-
-    plt.sca(axes[1])
-    plt.imshow(rsa_learned, vmin=env.reward_range[0], vmax=env.reward_range[1])
-    plt.title(r"$R_{L}(s, a)$")
-    plt.xlabel("Actions a")
-
-    plt.colorbar()
-    plt.tight_layout()
-    plt.show()
-    plt.close()
-
-    # UP TO HERE TODO ajs 27/Oct/2020
-    # XXX In this case, we require an optimal stochastic policy with q_precision set
-    # (and stochastic policy evaluation) to get a realistic ILE, EVD. Otherwise the
-    # learned policy defaults to always going right (the optimal policy) due to a float
-    # rounding error, and choosing the 0th action amongst many equally good actions.
-    # Not sure how to handle these settings elegantly when calling ile_evd()
-    # Need to decide on a modified API for ile_evd()
-    env_irl = copy.deepcopy(env)
-    env_irl._state_action_rewards = rsa_learned
-    ile, evd = ile_evd(env, env_irl, verbose=True)
-
-    print(f"ILE = {ile}")
-    print(f"EVD = {evd}")
-
-    print("Done")
+    pass
 
 
 if __name__ == "__main__":
