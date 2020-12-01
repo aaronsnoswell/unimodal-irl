@@ -118,6 +118,8 @@ def bv_maxlikelihood_irl(
     # Compute Q*, pi* for current reward guess
     reward = Linear(x)
     q_star = q_vi(xtr, phi, reward)
+
+    # To use the soft Q function from Babes-Vroman's paper, uncomment below
     # q_star = nb_smq_value_iteration(
     #     xtr.t_mat, xtr.gamma, *reward.structured(xtr, phi), boltzmann_scale
     # )
