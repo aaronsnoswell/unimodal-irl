@@ -1,4 +1,4 @@
-"""Implements Maximum Entropy IRL from my thesis"""
+"""Implements Exact Maximum Entropy IRL from my thesis"""
 
 import numpy as np
 from numba import jit
@@ -228,7 +228,7 @@ def nb_marginals_log(
 
 
 def partition_log(L, alpha_log, with_dummy_state=True):
-    """Compute the partition function
+    """Compute the log partition function
     
     Args:
         L (int): Maximum path length
@@ -344,9 +344,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
     return path_log_probs
 
 
-def sw_maxent_irl(
-    x, xtr, phi, phi_bar, max_path_length, with_dummy_state, nll_only=False
-):
+def sw_maxent_irl(x, xtr, phi, rollouts, with_dummy_state, nll_only=False):
     """Maximum Entropy IRL using our exact algorithm
     
     Returns NLL and NLL gradient of the demonstration data under the proposed reward
@@ -362,9 +360,7 @@ def sw_maxent_irl(
             optimized
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
-        phi_bar (numpy array): Discounted expected feature vector from some'
-            demonstration dataset
-        max_path_length (int): Maximum path length to consider
+        rollouts (list): List of (s, a) rollouts
         with_dummy_state (bool): True if the xtr, phi definitions have been padded with
             a dummy state using unimodal_irl.utils.padding_trick(). This is required
             if the MDP has terminal states.
@@ -376,6 +372,13 @@ def sw_maxent_irl(
         (numpy array): Downhill gradient of negative log likelihood at the given point
     
     """
+
+    phi_bar = phi.expectation(rollouts, gamma=xtr.gamma)
+    if len(rollouts) == 1:
+        max_path_length = len(rollouts[0])
+    else:
+        max_path_length = max([len(r) for r in rollouts])
+
     # Store current argument guess and explode reward function to indicator
     # arrays
     r_linear = Linear(x)
