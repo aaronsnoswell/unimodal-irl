@@ -26,12 +26,7 @@ Each `*_irl.py` file provides one IRL algorithm as python method.
 These methods return the optimization objective and/or gradient and are designed for
 use with optimizers such as `scipy.optimize.minimize()`.
 
-These methods accept parameters that are based on the [`mdp-extras`](https://github.com/aaronsnoswell/mdp-extras)
-helper library.
-Please see the documentation for that library to understand how to construct the
-appropriate parameters for your problem.
-
-For example, to run Maximum Likelihood IRL on the `FrozenLake` MDP;
+For example, to run Exact Maximum Entropy IRL on the `FrozenLake` MDP;
 
 ```python
 import gym
@@ -86,6 +81,11 @@ print(theta_star.reshape(4, 4))
 
 print("Done")
 ```
+
+The implementations in this library accept parameters that are based on the [`mdp-extras`](https://github.com/aaronsnoswell/mdp-extras)
+helper library.
+Please see the documentation for that library to understand how to construct the
+appropriate parameters for your problem.
 
 ### Exact Maximum Entropy Inverse Reinforcement Learning (ExactMaxEntIRL)
 
