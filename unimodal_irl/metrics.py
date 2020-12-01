@@ -2,24 +2,19 @@
 
 import numpy as np
 
-from explicit_env.soln import (
-    value_iteration,
-    q_from_v,
-    OptimalPolicy,
-    policy_evaluation,
-)
+from mdp_extras import v_vi, v2q, OptimalPolicy, pi_eval
 
 
 def ile_evd(
-    env_GT,
-    env_IRL,
+    xtr,
+    phi,
+    reward_gt,
+    reward_test,
     *,
     p=1,
-    optimal_policy_value=None,
-    optimal_policy=None,
-    verbose=False,
     vi_kwargs={},
-    pi_kwargs={}
+    policy_kwargs={},
+    pe_kwargs={}
 ):
     """Find Inverse Learning Error and Expected Value Difference metrics
     
@@ -31,51 +26,32 @@ def ile_evd(
     version of ILE, that only considers states with non-zero starting probability.
     
     Args:
-        env_GT (unimodal_irl.envs.explicit.IExplicitEnv) Environment with GT reward
-        env_IRL (unimodal_irl.envs.explicit.IExplicitEnv) Environment with learned
-            reward
+        xtr (mdp_extras.DiscreteExplicitExtras) MDP extras object
+        phi (mdp_extras.FeatureFunction) Feature function for MDP
+        reward_gt (mdp_extras.RewardFunction): Ground Truth reward function for MDP
+        reward_test (mdp_extras.RewardFunction): Learned reward function for MDP
         
         p (int): p-Norm to use for ILE, Choi and Kim and other papers recommend p=1
-        optimal_policy_value (numpy array): Optional shortcut - provide a pre-computed
-            value array for the optimal policy to save computing it in this function
-        optimal_policy (object): Optional shortcut - provide a pre-trained optimal
-            policy so we don't have to compute it
-        verbose (bool): Extra logging info
-        vi_kwargs (dict): Extra keyword args for value_iteration
-        pi_kwargs (dict): Extra keyword args for policy_iteration
+        vi_kwargs (dict): Extra keyword args for mdp_extras.v_vi Value Iteration method
+        policy_kwargs (dict): Extra keyword args for mdp_extras.OptimalPolicy
+        pe_kwargs (dict): Extra keyword args for mdp_extras.pi_eval Policy Evaluation method
     
     Returns:
         (float): Inverse Learning Error metric
         (float): Expected Value Difference metric
     """
-    # Find the ground truth value of the optimal policy
-    if verbose:
-        print("Solving for GT value of optimal policy")
-    if optimal_policy_value is None:
-        if optimal_policy is None:
-            v_GT = value_iteration(env_GT, **vi_kwargs)
-            q_GT = q_from_v(v_GT, env_GT)
-            pi_GT = OptimalPolicy(q_GT, stochastic=False)
-        else:
-            pi_GT = optimal_policy
-        vpi_GT = policy_evaluation(env_GT, pi_GT, **pi_kwargs)
-    else:
-        vpi_GT = optimal_policy_value
 
-    if verbose:
-        print("Optimal policy GT value = \n{}".format(vpi_GT))
+    # Get GT policy state value function
+    gt_policy_value = v_vi(xtr, phi, reward_gt, **vi_kwargs)
 
-    # Find the value of the optimal policy for the learned reward, when evaluated on
-    # the true reward
-    if verbose:
-        print("Solving for GT value of learned policy")
-    v_IRL = value_iteration(env_IRL, **vi_kwargs)
-    q_IRL = q_from_v(v_IRL, env_IRL)
-    pi_IRL = OptimalPolicy(q_IRL, stochastic=False)
-    vpi_IRL = policy_evaluation(env_GT, pi_IRL, **pi_kwargs)
-    if verbose:
-        print("Learned policy GT value = \n{}".format(vpi_IRL))
+    # Get test policy state value function under GT reward
+    v_star_test = v_vi(xtr, phi, reward_test, **vi_kwargs)
+    q_star = v2q(v_star_test, xtr, phi, reward_test)
+    pi_star_test = OptimalPolicy(q_star, stochastic=False, **policy_kwargs)
+    test_policy_value = pi_eval(xtr, phi, reward_gt, pi_star_test, **pe_kwargs)
 
-    ile = np.linalg.norm(vpi_GT - vpi_IRL, ord=p)
-    evd = env_GT.p0s @ (vpi_GT - vpi_IRL)
+    value_delta = gt_policy_value - test_policy_value
+    ile = np.linalg.norm(value_delta, ord=p)
+    evd = xtr.p0s @ value_delta
+
     return ile, evd
