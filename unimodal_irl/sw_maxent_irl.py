@@ -227,14 +227,14 @@ def nb_marginals_log(
     return pts, ptsa, ptsas
 
 
-def partition_log(L, alpha_log, with_dummy_state=True):
+def log_partition(L, alpha_log, padded=True):
     """Compute the log partition function
     
     Args:
         L (int): Maximum path length
         alpha_log (numpy array): |S|xL backward message variable in log space
         
-        with_dummy_state (bool): If true, the final row of the alpha matrix corresponds
+        padded (bool): If true, the final row of the alpha matrix corresponds
             to a dummy state which is used for MDP padding
         
     Returns:
@@ -242,7 +242,7 @@ def partition_log(L, alpha_log, with_dummy_state=True):
     """
 
     # If the dummy state is included, don't include it in the partition
-    if with_dummy_state:
+    if padded:
         alpha_log = alpha_log[0:-1, :]
 
     # Find maximum value
@@ -252,9 +252,7 @@ def partition_log(L, alpha_log, with_dummy_state=True):
     return m + np.log(np.sum(np.exp(alpha_log[:, 0:L] - m)))
 
 
-def maxent_log_likelihood(
-    xtr, phi, reward, rollouts, with_dummy_state=False, weights=None
-):
+def maxent_log_likelihood(xtr, phi, reward, rollouts, weights=None):
     """
     Find the average log likelihood of a set of paths under a MaxEnt model
     
@@ -273,20 +271,16 @@ def maxent_log_likelihood(
             parameters.
         reward (mdp_extras.RewardFunction): Reward function
         rollouts (list): List of rollouts, each a list of (s, a) tuples
-        with_dummy_state (bool): True if the xtr, phi definitions have been padded with
-            a dummy state using unimodal_irl.utils.padding_trick(). This is required
-            if the MDP has terminal states.
         
     Returns:
         (float): Average log-likelihood of the paths in rollouts under the given reward
     """
     return np.average(
-        maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state),
-        weights=weights,
+        maxent_path_logprobs(xtr, phi, reward, rollouts, xtr.padded), weights=weights,
     )
 
 
-def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
+def maxent_path_logprobs(xtr, phi, reward, rollouts):
     """Compute log probability of a set of paths
     
     Args:
@@ -295,9 +289,6 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
             parameters.
         reward (mdp_extras.RewardFunction): Reward function
         rollouts (list): List of rollouts, each a list of (s, a) tuples
-        with_dummy_state (bool): True if the xtr, phi definitions have been padded with
-            a dummy state using unimodal_irl.utils.padding_trick(). This is required
-            if the MDP has terminal states.
         
     Returns:
         (list): List of log-probabilities under a MaxEnt model of paths
@@ -325,11 +316,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
         )
 
         # Compute partition value
-        Z_theta_log = partition_log(
-            max_path_length, alpha_log, with_dummy_state=with_dummy_state
-        )
-
-    print("Here")
+        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.padded)
 
     path_log_probs = (
         np.array(
@@ -344,7 +331,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts, with_dummy_state=False):
     return path_log_probs
 
 
-def sw_maxent_irl(x, xtr, phi, rollouts, with_dummy_state, nll_only=False):
+def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
     """Maximum Entropy IRL using our exact algorithm
     
     Returns NLL and NLL gradient of the demonstration data under the proposed reward
@@ -361,9 +348,7 @@ def sw_maxent_irl(x, xtr, phi, rollouts, with_dummy_state, nll_only=False):
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
         rollouts (list): List of (s, a) rollouts
-        with_dummy_state (bool): True if the xtr, phi definitions have been padded with
-            a dummy state using unimodal_irl.utils.padding_trick(). This is required
-            if the MDP has terminal states.
+        weights (numpy array): Optional path weights for weighted IRL problems
         nll_only (bool): If true, only return NLL
     
     Returns:
@@ -373,7 +358,10 @@ def sw_maxent_irl(x, xtr, phi, rollouts, with_dummy_state, nll_only=False):
     
     """
 
-    phi_bar = phi.expectation(rollouts, gamma=xtr.gamma)
+    if weights is None:
+        weights = np.ones(len(rollouts)) / len(rollouts)
+
+    phi_bar = phi.expectation(rollouts, gamma=xtr.gamma, weights=weights)
     if len(rollouts) == 1:
         max_path_length = len(rollouts[0])
     else:
@@ -400,9 +388,7 @@ def sw_maxent_irl(x, xtr, phi, rollouts, with_dummy_state, nll_only=False):
         )
 
         # Compute partition value
-        Z_theta_log = partition_log(
-            max_path_length, alpha_log, with_dummy_state=with_dummy_state
-        )
+        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.padded)
 
     # Compute NLL
     nll = Z_theta_log - x @ phi_bar

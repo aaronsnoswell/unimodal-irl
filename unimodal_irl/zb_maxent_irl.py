@@ -5,7 +5,7 @@ import numpy as np
 from numba import jit
 
 from mdp_extras import Linear, Disjoint
-from unimodal_irl.sw_maxent_irl import nb_backward_pass_log, partition_log
+from unimodal_irl.sw_maxent_irl import nb_backward_pass_log, log_partition
 
 
 @jit(nopython=True)
@@ -243,7 +243,7 @@ def zb_maxent_irl(x, xtr, phi, phi_bar, max_path_length, version="10", nll_only=
         )
 
         # Compute partition value
-        Z_theta_log = partition_log(max_path_length, alpha_log, with_dummy_state=False)
+        Z_theta_log = log_partition(max_path_length, alpha_log, padded=False)
 
     # Compute NLL
     nll = Z_theta_log - x @ phi_bar
