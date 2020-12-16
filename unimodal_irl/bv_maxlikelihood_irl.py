@@ -90,9 +90,9 @@ def nb_smq_value_iteration(
 
 
 def bv_maxlikelihood_irl(
-    x, xtr, phi, rollouts, boltzmann_scale=0.5, qge_tol=1e-3, nll_only=False
+    x, xtr, phi, rollouts, weights=None, boltzmann_scale=0.5, qge_tol=1e-3, nll_only=False
 ):
-    """Compute the average Negative Log Likelihood (and gradient) for ML-IRL
+    """Compute the average rollout Negative Log Likelihood (and gradient) for ML-IRL
     
     This method is biased to prefer shorter paths through any MDP.
     
@@ -107,6 +107,7 @@ def bv_maxlikelihood_irl(
             parameters. We require len(phi) == len(x).
         rollouts (list): List of (s, a) rollouts.
         
+        weights (numpy array): Optional path weights for weighted IRL problems
         boltzmann_scale (float): Optimality parameter for Boltzmann policy. Babes-Vroman
             use 0.5. Values closer to 1.0 cause slower convergence, but values closer to
             0 model the demonstrations as being non-expert. Empirically I find 0.2 works
@@ -114,6 +115,9 @@ def bv_maxlikelihood_irl(
         qge_tol (float): Tolerance for q-gradient estimation.
         nll_only (bool): If true, only return NLL
     """
+
+    if weights is None:
+        weights = np.ones(len(rollouts)) / len(rollouts)
 
     # Compute Q*, pi* for current reward guess
     reward = Linear(x)
@@ -133,31 +137,32 @@ def bv_maxlikelihood_irl(
     nll = 0
     nll_grad = np.zeros_like(x)
     num_sa_samples = 0
-    for path in rollouts:
+    for path, weight in zip(rollouts, weights):
         for s, a in path[:-1]:
             num_sa_samples += 1
             ell_theta = pi.prob_for_state_action(s, a)
 
             # Accumulate negative log likelihood of demonstration data
-            nll += -1 * np.log(ell_theta)
+            nll += -1 * weight * np.log(ell_theta)
 
             if not nll_only:
+                # XXX b here is an auxillary state - dq_dtheta indexerror
                 expected_action_grad = np.sum(
                     [
                         pi.prob_for_state_action(s, b) * dq_dtheta[s, b, :]
-                        for b in xtr.actions
+                        for b in xtr.unpadded.actions
                     ],
                     axis=0,
                 )
                 dl_dtheta = boltzmann_scale * (
                     expected_action_grad - dq_dtheta[s, a, :]
                 )
-                nll_grad += dl_dtheta
+                nll_grad += weight * dl_dtheta
 
     # Convert NLL and gradient to average, not sum
     # This makes for consistent magnitude values regardless of dataset size
-    nll /= num_sa_samples
-    nll_grad /= num_sa_samples
+    nll /= len(rollouts)
+    nll_grad /= len(rollouts)
 
     if nll_only:
         return nll
