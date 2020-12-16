@@ -9,3 +9,4 @@ from unimodal_irl.sw_maxent_irl import (
     nb_marginals_log,
 )
 from unimodal_irl.zb_maxent_irl import zb_maxent_irl
+from unimodal_irl.bv_maxlikelihood_irl import bv_maxlikelihood_irl
