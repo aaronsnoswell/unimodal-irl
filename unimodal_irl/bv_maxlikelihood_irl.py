@@ -6,9 +6,7 @@ import itertools as it
 
 from numba import jit
 
-from explicit_env.soln import BoltzmannExplorationPolicy
-
-from mdp_extras import Linear, q_vi, q_grad_fpi
+from mdp_extras import Linear, q_vi, q_grad_fpi, BoltzmannExplorationPolicy
 
 
 @jit(nopython=True)
