@@ -88,7 +88,14 @@ def nb_smq_value_iteration(
 
 
 def bv_maxlikelihood_irl(
-    x, xtr, phi, rollouts, weights=None, boltzmann_scale=0.5, qge_tol=1e-3, nll_only=False
+    x,
+    xtr,
+    phi,
+    rollouts,
+    weights=None,
+    boltzmann_scale=0.5,
+    qge_tol=1e-3,
+    nll_only=False,
 ):
     """Compute the average rollout Negative Log Likelihood (and gradient) for ML-IRL
     
@@ -144,11 +151,10 @@ def bv_maxlikelihood_irl(
             nll += -1 * weight * np.log(ell_theta)
 
             if not nll_only:
-                # XXX b here is an auxillary state - dq_dtheta indexerror
                 expected_action_grad = np.sum(
                     [
                         pi.prob_for_state_action(s, b) * dq_dtheta[s, b, :]
-                        for b in xtr.unpadded.actions
+                        for b in xtr.actions
                     ],
                     axis=0,
                 )
