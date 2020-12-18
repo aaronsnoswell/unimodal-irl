@@ -276,7 +276,8 @@ def maxent_log_likelihood(xtr, phi, reward, rollouts, weights=None):
         (float): Average log-likelihood of the paths in rollouts under the given reward
     """
     return np.average(
-        maxent_path_logprobs(xtr, phi, reward, rollouts, xtr.padded), weights=weights,
+        maxent_path_logprobs(xtr, phi, reward, rollouts, xtr.is_padded),
+        weights=weights,
     )
 
 
@@ -316,7 +317,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
         )
 
         # Compute partition value
-        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.padded)
+        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.is_padded)
 
     path_log_probs = (
         np.array(
@@ -388,7 +389,7 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
         )
 
         # Compute partition value
-        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.padded)
+        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.is_padded)
 
     # Compute NLL
     nll = Z_theta_log - x @ phi_bar
