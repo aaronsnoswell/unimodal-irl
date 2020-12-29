@@ -2,10 +2,19 @@
 
 import numpy as np
 from numba import jit
+from numba import types
+from numba.typed import Dict, List
+
 from scipy.optimize import minimize
 
 
-from mdp_extras import Linear, Disjoint, trajectory_reward
+from mdp_extras import (
+    Linear,
+    Disjoint,
+    trajectory_reward,
+    DiscreteExplicitExtras,
+    DiscreteImplicitExtras,
+)
 
 
 # Placeholder for 'negative infinity' which doesn't cause NaN in log-space operations
@@ -74,6 +83,58 @@ def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None)
 
 
 @jit(nopython=True)
+def nb_backward_pass_log_deterministic_stateonly(p0s, L, parents, rs, gamma=1.0):
+    """Compute backward message passing variable in log-space
+    
+    This version of the backward pass function makes extra assumptions so we can handle
+    some much larger problems
+     - Dynamics are deterministic
+     - Rewards are state-only
+    
+    Args:
+        p0s (numpy array): Starting state probabilities
+        L (int): Maximum path length
+        parents (numpy array): Fixed-size parents array. Rows indices correspond to
+            states, and the first X elements of each row contain the parent state IDs
+            for that state. Any remaining elements of that row are then -1.
+        rs (numpy array): |S| array of linear state reward weights
+        
+        gamma (float): Discount factor
+    
+    Returns:
+        (numpy array): |S|xL array of backward message values in log space
+    """
+    num_states = len(p0s)
+
+    alpha = np.zeros((num_states, L))
+    alpha[:, 0] = np.log(p0s) + rs
+
+    # Parent-based iteration
+    for t in range(L - 1):
+        for s2 in range(num_states):
+            # Find maximum value among all parents of s2
+            m_t = _NINF
+            for s1 in parents[s2, :]:
+                if s1 < 0:
+                    # s2 has no more parents
+                    break
+                m_t = max(m_t, alpha[s1, t])
+            m_t += (gamma ** (t + 1)) * rs[s2]
+
+            # Compute next column of alpha in log-space
+            for s1 in parents[s2, :]:
+                if s1 < 0:
+                    # s2 has no more parents
+                    break
+                alpha[s2, t + 1] += 1.0 * np.exp(
+                    alpha[s1, t] + (gamma ** (t + 1)) * rs[s2] - m_t
+                )
+            alpha[s2, t + 1] = m_t + np.log(alpha[s2, t + 1])
+
+    return alpha
+
+
+@jit(nopython=True)
 def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute forward message passing variable in log space
     
@@ -130,6 +191,56 @@ def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
                         + beta[s2, t]
                         - m_t
                     )
+            beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
+
+    return beta
+
+
+@jit(nopython=True)
+def nb_forward_pass_log_deterministic_stateonly(L, children, rs, gamma=1.0):
+    """Compute forward message passing variable in log space
+    
+    This version of the forward pass function makes extra assumptions so we can handle
+    some much larger problems
+     - Dynamics are deterministic
+     - Rewards are state-only
+    
+    Args:
+        L (int): Maximum path length
+        children (numpy array): Fixed-size children array. Rows indices correspond to
+            states, and the first X elements of each row contain the child state IDs
+            for that state. Any remaining elements of that row are then -1.
+        rs (numpy array): Linear state
+        
+        gamma (float): Discount factor
+    
+    Returns:
+        (numpy array): |S| x L array of forward message values in log space
+    """
+    num_states = len(children)
+
+    beta = np.zeros((num_states, L))
+    beta[:, 0] = gamma ** (L - 1) * rs
+    for t in range(L - 1):
+        for s1 in range(num_states):
+
+            # Find maximum value among children of s1
+            m_t = _NINF
+            for s2 in children[s1, :]:
+                if s2 < 0:
+                    # s1 has no more children
+                    break
+                m_t = max(m_t, beta[s2, t])
+            m_t += gamma ** (L - (t + 1) - 1) * rs[s1]
+
+            # Compute next column of beta in log-space
+            for s2 in children[s1, :]:
+                if s2 < 0:
+                    # s1 has no more children
+                    break
+                beta[s1, t + 1] += np.exp(
+                    gamma ** (L - (t + 1) - 1) * rs[s1] + beta[s2, t] - m_t
+                )
             beta[s1, t + 1] = m_t + np.log(beta[s1, t + 1])
 
     return beta
@@ -225,6 +336,77 @@ def nb_marginals_log(
     pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
 
     return pts, ptsa, ptsas
+
+
+@jit(nopython=True)
+def nb_marginals_log_deterministic_stateonly(
+    L, children, alpha_log, beta_log, Z_theta_log
+):
+    """Compute marginal terms
+    
+    This version of the marginal function makes extra assumptions so we can handle
+    some much larger problems
+     - Dynamics are deterministic
+     - Rewards are state-only
+
+    Args:
+        L (int): Maximum path length
+        children (numpy array): Fixed-size children array. Rows indices correspond to
+            states, and the first X elements of each row contain the child state IDs
+            for that state. Any remaining elements of that row are then -1.
+        alpha_log (numpy array): |S|xL array of backward message values in log space
+        beta_log (numpy array): |S|xL array of forward message values in log space
+        Z_theta_log (float): Partition value in log space
+
+    Returns:
+        (numpy array): |S|xL array of state marginals in log space
+    """
+
+    num_states = len(children)
+
+    pts = np.zeros((num_states, L))
+
+    for t in range(L - 1):
+
+        for s1 in range(num_states):
+
+            # if np.isneginf(alpha_log[s1, t]):
+            if np.exp(alpha_log[s1, t]) == 0:
+                # Catch edge case where the backward message value is zero to prevent
+                # floating point error
+                pts[s1, t] = -np.inf
+            else:
+                # Compute max value
+                m_t = _NINF
+                for s2 in children[s1, :]:
+                    if s2 < 0:
+                        # s1 has no more children
+                        break
+                    m_t = max(m_t, beta_log[s2, L - (t + 1) - 1])
+                m_t += alpha_log[s1, t] - Z_theta_log
+
+                # Compute state marginals in log space
+                for s2 in children[s1, :]:
+                    if s2 < 0:
+                        # s1 has no more children
+                        break
+                    contrib = np.exp(
+                        alpha_log[s1, t]
+                        + beta_log[s2, L - (t + 1) - 1]
+                        - Z_theta_log
+                        - m_t
+                    )
+                    pts[s1, t] += contrib
+
+                if pts[s1, t] == 0:
+                    pts[s1, t] = -np.inf
+                else:
+                    pts[s1, t] = m_t + np.log(pts[s1, t])
+
+    # Compute final column of pts
+    pts[:, L - 1] = alpha_log[:, L - 1] - Z_theta_log
+
+    return pts
 
 
 def log_partition(L, alpha_log, padded=True):
@@ -344,7 +526,7 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
     
     Args:
         x (numpy array): Current reward function parameter vector estimate
-        xtr (mdp_extras.DiscreteExplicitExtras): Extras object for the MDP being
+        xtr (mdp_extras.BaseExtras): Extras object for the MDP being
             optimized
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
@@ -368,94 +550,166 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
     else:
         max_path_length = max([len(r) for r in rollouts])
 
-    # Store current argument guess and explode reward function to indicator
-    # arrays
+    # Store current argument guess
     r_linear = Linear(x)
-    rs, rsa, rsas = r_linear.structured(xtr, phi)
 
-    # Catch float overflow as an error - reward magnitute is too large for
-    # exponentiation with this max path length
-    with np.errstate(over="raise"):
+    if isinstance(xtr, DiscreteExplicitExtras):
+        # Process tabular MDP
 
-        # Compute backward message
-        alpha_log = nb_backward_pass_log(
-            xtr.p0s,
-            max_path_length,
-            xtr.t_mat,
-            gamma=xtr.gamma,
-            rs=rs,
-            rsa=rsa,
-            rsas=rsas,
-        )
+        # Explode reward function to indicator arrays
+        rs, rsa, rsas = r_linear.structured(xtr, phi)
 
-        # Compute partition value
-        Z_theta_log = log_partition(max_path_length, alpha_log, padded=xtr.is_padded)
-
-    # Compute NLL
-    nll = Z_theta_log - x @ phi_bar
-
-    if nll_only:
-        return nll
-    else:
-
-        # Compute gradient
+        # Catch float overflow as an error - reward magnitude is too large for
+        # exponentiation with this max path length
         with np.errstate(over="raise"):
 
-            # Compute forward message
-            beta_log = nb_forward_pass_log(
-                max_path_length, xtr.t_mat, gamma=xtr.gamma, rs=rs, rsa=rsa, rsas=rsas,
-            )
-
-            # Compute transition marginals
-            pts_log, ptsa_log, ptsas_log = nb_marginals_log(
+            # Compute backward message
+            alpha_log = nb_backward_pass_log(
+                xtr.p0s,
                 max_path_length,
                 xtr.t_mat,
-                alpha_log,
-                beta_log,
-                Z_theta_log,
                 gamma=xtr.gamma,
+                rs=rs,
                 rsa=rsa,
                 rsas=rsas,
             )
 
-        # Compute gradient based on feature type
-        if phi.type == Disjoint.Type.OBSERVATION:
+            # Compute partition value
+            Z_theta_log = log_partition(
+                max_path_length, alpha_log, padded=xtr.is_padded
+            )
 
+        # Compute NLL
+        nll = Z_theta_log - x @ phi_bar
+
+        if nll_only:
+            return nll
+        else:
+
+            # Compute gradient
+            with np.errstate(over="raise"):
+
+                # Compute forward message
+                beta_log = nb_forward_pass_log(
+                    max_path_length,
+                    xtr.t_mat,
+                    gamma=xtr.gamma,
+                    rs=rs,
+                    rsa=rsa,
+                    rsas=rsas,
+                )
+
+                # Compute transition marginals
+                pts_log, ptsa_log, ptsas_log = nb_marginals_log(
+                    max_path_length,
+                    xtr.t_mat,
+                    alpha_log,
+                    beta_log,
+                    Z_theta_log,
+                    gamma=xtr.gamma,
+                    rsa=rsa,
+                    rsas=rsas,
+                )
+
+            # Compute gradient based on feature type
+            if phi.type == Disjoint.Type.OBSERVATION:
+
+                s_counts = np.sum(np.exp(pts_log), axis=-1)
+                efv_s = np.sum([s_counts[s] * phi(s) for s in xtr.states], axis=0)
+                nll_grad = efv_s - phi_bar
+
+            elif phi.type == Disjoint.Type.OBSERVATION_ACTION:
+
+                sa_counts = np.sum(np.exp(ptsa_log), axis=-1)
+                efv_sa = np.sum(
+                    [
+                        sa_counts[s1, a] * phi(s1, a)
+                        for s1 in xtr.states
+                        for a in xtr.actions
+                    ],
+                    axis=0,
+                )
+                nll_grad = efv_sa - phi_bar
+
+            elif phi.type == Disjoint.Type.OBSERVATION_ACTION_OBSERVATION:
+
+                sas_counts = np.sum(np.exp(ptsas_log), axis=-1)
+                efv_sas = np.sum(
+                    [
+                        sas_counts[s1, a, s2] * phi(s1, a, s2)
+                        for s1 in xtr.states
+                        for a in xtr.actions
+                        for s2 in xtr.states
+                    ],
+                    axis=0,
+                )
+                nll_grad = efv_sas - phi_bar
+
+            else:
+                raise ValueError
+
+            return nll, nll_grad
+
+    elif isinstance(xtr, DiscreteImplicitExtras):
+        # Handle Implicit dynamics MDP
+
+        # Only supports state features - otherwise we run out of memory
+        assert (
+            phi.type == phi.Type.OBSERVATION
+        ), "For DiscreteImplicit MPDs only state-based rewards are supported"
+
+        # Only supports deterministic transitions
+        assert (
+            xtr.is_deterministic
+        ), "For DiscreteImplicit MPDs only deterministic dynamics are supported"
+
+        rs = np.array([r_linear(phi(s)) for s in xtr.states])
+
+        # Catch float overflow as an error - reward magnitude is too large for
+        # exponentiation with this max path length
+        with np.errstate(over="raise"):
+            # Compute alpha_log
+            alpha_log = nb_backward_pass_log_deterministic_stateonly(
+                xtr.p0s, max_path_length, xtr.parents_fixedsize, rs, gamma=xtr.gamma
+            )
+
+            # Compute partition value
+            Z_theta_log = log_partition(
+                max_path_length, alpha_log, padded=xtr.is_padded
+            )
+
+        # Compute NLL
+        nll = Z_theta_log - x @ phi_bar
+
+        if nll_only:
+            return nll
+        else:
+
+            # Compute NLL gradient as well
+            with np.errstate(over="raise"):
+                # Compute beta_log
+                beta_log = nb_forward_pass_log_deterministic_stateonly(
+                    max_path_length, xtr.children_fixedsize, rs, gamma=xtr.gamma
+                )
+
+                # Compute transition marginals pts_log (not ptsa, ptsas)
+                pts_log = nb_marginals_log_deterministic_stateonly(
+                    max_path_length,
+                    xtr.children_fixedsize,
+                    alpha_log,
+                    beta_log,
+                    Z_theta_log,
+                )
+
+            # Compute gradient
             s_counts = np.sum(np.exp(pts_log), axis=-1)
             efv_s = np.sum([s_counts[s] * phi(s) for s in xtr.states], axis=0)
             nll_grad = efv_s - phi_bar
+            return nll, nll_grad
 
-        elif phi.type == Disjoint.Type.OBSERVATION_ACTION:
-
-            sa_counts = np.sum(np.exp(ptsa_log), axis=-1)
-            efv_sa = np.sum(
-                [
-                    sa_counts[s1, a] * phi(s1, a)
-                    for s1 in xtr.states
-                    for a in xtr.actions
-                ],
-                axis=0,
-            )
-            nll_grad = efv_sa - phi_bar
-
-        elif phi.type == Disjoint.Type.OBSERVATION_ACTION_OBSERVATION:
-
-            sas_counts = np.sum(np.exp(ptsas_log), axis=-1)
-            efv_sas = np.sum(
-                [
-                    sas_counts[s1, a, s2] * phi(s1, a, s2)
-                    for s1 in xtr.states
-                    for a in xtr.actions
-                    for s2 in xtr.states
-                ],
-                axis=0,
-            )
-            nll_grad = efv_sas - phi_bar
-
-        else:
-            raise ValueError
-
-        return nll, nll_grad
+    else:
+        # Unknown MDP type
+        raise ValueError(f"Unknown MDP class {xtr}")
 
 
 def main():
