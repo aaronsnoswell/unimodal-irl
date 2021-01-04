@@ -83,7 +83,9 @@ def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None)
 
 
 @jit(nopython=True)
-def nb_backward_pass_log_deterministic_stateonly(p0s, L, parents, rs, gamma=1.0):
+def nb_backward_pass_log_deterministic_stateonly(
+    p0s, L, parents, rs, gamma=1.0, padded=False
+):
     """Compute backward message passing variable in log-space
     
     This version of the backward pass function makes extra assumptions so we can handle
@@ -100,6 +102,8 @@ def nb_backward_pass_log_deterministic_stateonly(p0s, L, parents, rs, gamma=1.0)
         rs (numpy array): |S| array of linear state reward weights
         
         gamma (float): Discount factor
+        padded (bool): Is this MDP padded? In which case, we need to handle the parents
+            array with extra caution (it won't have the auxiliary state/action included)
     
     Returns:
         (numpy array): |S|xL array of backward message values in log space
@@ -109,9 +113,12 @@ def nb_backward_pass_log_deterministic_stateonly(p0s, L, parents, rs, gamma=1.0)
     alpha = np.zeros((num_states, L))
     alpha[:, 0] = np.log(p0s) + rs
 
-    # Parent-based iteration
+    # Handle padded MDP - the auxiliary state has every state (including itself)
+    # as a parent, but this isn't reflected in the parents fixed size array
+    num_aux_states = 1 if padded else 0
+
     for t in range(L - 1):
-        for s2 in range(num_states):
+        for s2 in range(num_states - num_aux_states):
             # Find maximum value among all parents of s2
             m_t = _NINF
             for s1 in parents[s2, :]:
@@ -130,6 +137,25 @@ def nb_backward_pass_log_deterministic_stateonly(p0s, L, parents, rs, gamma=1.0)
                     alpha[s1, t] + (gamma ** (t + 1)) * rs[s2] - m_t
                 )
             alpha[s2, t + 1] = m_t + np.log(alpha[s2, t + 1])
+
+        if padded:
+            # Handle auxiliary state as a special case - every state (including itself
+            # is a parent state)
+            s_aux = num_states - 1
+            s_aux_parents = list(range(num_states))
+
+            # Find maximum value among all parents of s2
+            m_t = _NINF
+            for s1 in s_aux_parents:
+                m_t = max(m_t, alpha[s1, t])
+            m_t += (gamma ** (t + 1)) * rs[s_aux]
+
+            # Compute next column of alpha in log-space
+            for s1 in s_aux_parents:
+                alpha[s_aux, t + 1] += 1.0 * np.exp(
+                    alpha[s1, t] + (gamma ** (t + 1)) * rs[s_aux] - m_t
+                )
+            alpha[s_aux, t + 1] = m_t + np.log(alpha[s_aux, t + 1])
 
     return alpha
 
