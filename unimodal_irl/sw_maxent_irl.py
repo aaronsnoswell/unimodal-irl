@@ -572,7 +572,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
     return path_log_probs
 
 
-def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
+def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
     """Maximum Entropy IRL using our exact algorithm
     
     Returns NLL and NLL gradient of the demonstration data under the proposed reward
@@ -588,8 +588,8 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
             optimized
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
-        rollouts (list): List of (s, a) rollouts
-        weights (numpy array): Optional path weights for weighted IRL problems
+        phi_bar (numpy array): Feature expectation
+        max_path_length (int): Maximum path length
         nll_only (bool): If true, only return NLL
     
     Returns:
@@ -598,15 +598,6 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
         (numpy array): Downhill gradient of negative log likelihood at the given point
     
     """
-
-    if weights is None:
-        weights = np.ones(len(rollouts)) / len(rollouts)
-
-    phi_bar = phi.expectation(rollouts, gamma=xtr.gamma, weights=weights)
-    if len(rollouts) == 1:
-        max_path_length = len(rollouts[0])
-    else:
-        max_path_length = max([len(r) for r in rollouts])
 
     # Store current argument guess
     r_linear = Linear(x)
@@ -728,7 +719,12 @@ def sw_maxent_irl(x, xtr, phi, rollouts, weights=None, nll_only=False):
         with np.errstate(over="raise"):
             # Compute alpha_log
             alpha_log = nb_backward_pass_log_deterministic_stateonly(
-                xtr.p0s, max_path_length, xtr.parents_fixedsize, rs, gamma=xtr.gamma
+                xtr.p0s,
+                max_path_length,
+                xtr.parents_fixedsize,
+                rs,
+                gamma=xtr.gamma,
+                padded=xtr.is_padded,
             )
 
             # Compute partition value
