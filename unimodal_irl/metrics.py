@@ -14,7 +14,9 @@ def ile_evd(
     p=1,
     vi_kwargs={},
     policy_kwargs={},
-    pe_kwargs={}
+    pe_kwargs={},
+    ret_gt_value=False,
+    gt_policy_value=None
 ):
     """Find Inverse Learning Error and Expected Value Difference metrics
     
@@ -35,14 +37,19 @@ def ile_evd(
         vi_kwargs (dict): Extra keyword args for mdp_extras.v_vi Value Iteration method
         policy_kwargs (dict): Extra keyword args for mdp_extras.OptimalPolicy
         pe_kwargs (dict): Extra keyword args for mdp_extras.pi_eval Policy Evaluation method
+        ret_gt_value (bool): If true, also return the GT policy state value function,
+            can be used for speeding up future calls
+        gt_policy_value (numpy array): Optional ground truth policy state value function
+            - used for speeding up this function with multiple calls
     
     Returns:
         (float): Inverse Learning Error metric
         (float): Expected Value Difference metric
     """
-
-    # Get GT policy state value function
-    gt_policy_value = v_vi(xtr, phi, reward_gt, **vi_kwargs)
+    
+    if gt_policy_value is None:
+        # Get GT policy state value function
+        gt_policy_value = v_vi(xtr, phi, reward_gt, **vi_kwargs)
 
     # Get test policy state value function under GT reward
     v_star_test = v_vi(xtr, phi, reward_test, **vi_kwargs)
@@ -53,5 +60,8 @@ def ile_evd(
     value_delta = gt_policy_value - test_policy_value
     ile = np.linalg.norm(value_delta, ord=p)
     evd = xtr.p0s @ value_delta
-
-    return ile, evd
+    
+    if not ret_gt_value:
+        return ile, evd
+    else:
+        return ile, evd, gt_policy_value
