@@ -658,7 +658,10 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False
     # Identify our starting time
     if np.isneginf(np.max(s_lls[start])):
         # There is no feasible path from s1 to sg less or equal to than max_path_length
-        return None
+        if not with_ll:
+            return None
+        else:
+            return None, -np.inf
     start_time = np.argmax(s_lls[start, :])
     ml_path_ll = s_lls[start, start_time]
 
