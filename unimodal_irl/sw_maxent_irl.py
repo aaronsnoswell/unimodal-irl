@@ -592,52 +592,65 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
 
     rs, rsa, rsas = reward.structured(xtr, phi)
     
+    # We check if the rewards are all \le 0 - this allows a sp
+    all_negative_rewards = np.max(rs) <= 0 and np.max(rsa.flat) <= 0 and np.max(rsas.flat) <= 0
+    
     # Initialize an SxA LL Viterbi trellis
     sa_lls = np.zeros((len(xtr.states), len(xtr.actions), max_path_length)) - np.inf
     sa_lls[goal, :, :] = 0.0
-
-    # Walk backward to propagate the maximum LL
-    for t in range(max_path_length - 2, -1, -1):
-
-        # Max-Reduce over actions to compute state LLs
-        # (it's a max because we get to choose our actions)
-        s_lls = np.max(sa_lls, axis=1)
-
-        # Sweep end states
-        for s2 in xtr.states:
-
-            if np.isneginf(s_lls[s2, t + 1]):
-                # Skip this state - it hasn't been reached by probability messages yet
-                continue
-
-            # Sweep actions
-            for a in xtr.actions:
-
-                # Sweep starting states
-                for s1 in xtr.states:
-                    
-                    if xtr.terminal_state_mask[s1]:
-                        # We can't step forward from terminal states - skip this one
-                        continue
-                    
-                    transition_ll = (
-                        xtr.gamma ** (t - 1) * rs[s1]
-                        + xtr.gamma ** (t) * rsa[s1, a]
-                        + xtr.gamma ** (t) * rsas[s1, a, s2]
-                        + np.log(xtr.t_mat[s1, a, s2])
-                    )
-                    
-                    if np.isneginf(transition_ll):
-                        # This transition is impossible - skip
-                        continue
-
-                    # Store the max because we're after the maximum likelihood path
-                    sa_lls[s1, a, t] = max(
-                        sa_lls[s1, a, t], transition_ll + s_lls[s2, t + 1]
-                    )
+    
+    # Supress divide by zero - we take logs of many zeroes here
+    with np.errstate(divide='ignore'):
+        
+        # Walk backward to propagate the maximum LL
+        for t in range(max_path_length - 2, -1, -1):
+    
+            # Max-Reduce over actions to compute state LLs
+            # (it's a max because we get to choose our actions)
+            s_lls = np.max(sa_lls, axis=1)
+            
+            if not np.any(np.isneginf((s_lls[:, t + 1]))):
+                # The backward message has propagated to every state one step in the future
+                if all_negative_rewards:
+                    # In this context we are after a shortest path
+                    # Drop any earlier times from the trellis and early stop the backward pass
+                    sa_lls = sa_lls[:, :, t + 1:]
+                    break
+    
+            # Sweep end states
+            for s2 in xtr.states:
+    
+                if np.isneginf(s_lls[s2, t + 1]):
+                    # Skip this state - it hasn't been reached by probability messages yet
+                    continue
+    
+                # Sweep actions
+                for a in xtr.actions:
+    
+                    # Sweep starting states
+                    for s1 in xtr.states:
+                        
+                        if xtr.terminal_state_mask[s1]:
+                            # We can't step forward from terminal states - skip this one
+                            continue
+                        
+                        transition_ll = (
+                            xtr.gamma ** (t - 1) * rs[s1]
+                            + xtr.gamma ** (t) * rsa[s1, a]
+                            + xtr.gamma ** (t) * rsas[s1, a, s2]
+                            + np.log(xtr.t_mat[s1, a, s2])
+                        )
+                        
+                        if np.isneginf(transition_ll):
+                            # This transition is impossible - skip
+                            continue
+    
+                        # Store the max because we're after the maximum likelihood path
+                        sa_lls[s1, a, t] = max(
+                            sa_lls[s1, a, t], transition_ll + s_lls[s2, t + 1]
+                        )
 
     # Max-reduce to get state/action ML trellises for conveience
-    a_lls = np.max(sa_lls, axis=0)
     s_lls = np.max(sa_lls, axis=1)
 
     # Identify our starting time
