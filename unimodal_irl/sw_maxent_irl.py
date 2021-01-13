@@ -572,7 +572,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
     return path_log_probs
 
 
-def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
+def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False):
     """Find the ML path from s1 to sg under a MaxEnt model
     
     If transitions can inccur +ve rewards te returned paths may contain loops
@@ -584,6 +584,8 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
         start (int): Starting state
         goal (int): End state
         max_path_length (int): Maximum allowable path length to search
+        
+        with_ll (bool): Also return the log likelihood of the path
     
     Returns:
         (list): Maximum Likelihood path from start to goal under the given MaxEnt reward
@@ -658,6 +660,7 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
         # There is no feasible path from s1 to sg less or equal to than max_path_length
         return None
     start_time = np.argmax(s_lls[start, :])
+    ml_path_ll = s_lls[start, start_time]
 
     # Walk forward from start state, start time to re-construct path
     state = start
@@ -681,8 +684,11 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
 
     # Add final (goal) state
     ml_path.append((state, None))
-
-    return ml_path
+    
+    if not with_ll:
+        return ml_path
+    else:
+        return ml_path, ml_path_ll
 
 
 def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
