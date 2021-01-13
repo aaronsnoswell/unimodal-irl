@@ -511,9 +511,9 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
 
     if isinstance(xtr, DiscreteExplicitExtras):
         # Process tabular MDP
-        
+
         rs, rsa, rsas = reward.structured(xtr, phi)
-        
+
         # Catch float overflow as an error - reward magnitude is too large for
         # exponentiation with this max path length
         with np.errstate(over="raise"):
@@ -524,7 +524,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
                 xtr.gamma,
                 *reward.structured(xtr, phi),
             )
-            
+
     elif isinstance(xtr, DiscreteImplicitExtras):
         # Handle Implicit dynamics MDP
 
@@ -570,6 +570,106 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
     )
 
     return path_log_probs
+
+
+def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
+    """Find the ML path from s1 to sg under a MaxEnt model
+    
+    If transitions can inccur +ve rewards te returned paths may contain loops
+    
+    Args:
+        xtr (DiscreteExplicitExtras): MDP Extras object
+        phi (FeatureFunction): MDP Featrure function
+        reward (Linear): Linear reward function
+        start (int): Starting state
+        goal (int): End state
+        max_path_length (int): Maximum allowable path length to search
+    
+    Returns:
+        (list): Maximum Likelihood path from start to goal under the given MaxEnt reward
+            function, or None if no path is possible
+    """
+
+    rs, rsa, rsas = reward.structured(xtr, phi)
+    
+    # Initialize an SxA LL Viterbi trellis
+    sa_lls = np.zeros((len(xtr.states), len(xtr.actions), max_path_length)) - np.inf
+    sa_lls[goal, :, :] = 0.0
+
+    # Walk backward to propagate the maximum LL
+    for t in range(max_path_length - 2, -1, -1):
+
+        # Max-Reduce over actions to compute state LLs
+        # (it's a max because we get to choose our actions)
+        s_lls = np.max(sa_lls, axis=1)
+
+        # Sweep end states
+        for s2 in xtr.states:
+
+            if np.isneginf(s_lls[s2, t + 1]):
+                # Skip this state - it hasn't been reached by probability messages yet
+                continue
+
+            # Sweep actions
+            for a in xtr.actions:
+
+                # Sweep starting states
+                for s1 in xtr.states:
+                    
+                    if xtr.terminal_state_mask[s1]:
+                        # We can't step forward from terminal states - skip this one
+                        continue
+                    
+                    transition_ll = (
+                        xtr.gamma ** (t - 1) * rs[s1]
+                        + xtr.gamma ** (t) * rsa[s1, a]
+                        + xtr.gamma ** (t) * rsas[s1, a, s2]
+                        + np.log(xtr.t_mat[s1, a, s2])
+                    )
+                    
+                    if np.isneginf(transition_ll):
+                        # This transition is impossible - skip
+                        continue
+
+                    # Store the max because we're after the maximum likelihood path
+                    sa_lls[s1, a, t] = max(
+                        sa_lls[s1, a, t], transition_ll + s_lls[s2, t + 1]
+                    )
+
+    # Max-reduce to get state/action ML trellises for conveience
+    a_lls = np.max(sa_lls, axis=0)
+    s_lls = np.max(sa_lls, axis=1)
+
+    # Identify our starting time
+    if np.isneginf(np.max(s_lls[start])):
+        # There is no feasible path from s1 to sg less or equal to than max_path_length
+        return None
+    start_time = np.argmax(s_lls[start, :])
+
+    # Walk forward from start state, start time to re-construct path
+    state = start
+    time = start_time
+    ml_path = []
+    while state != goal:
+        action = np.argmax(sa_lls[state, :, time])
+        ml_path.append((state, action))
+        successor_states = [s for (a, s) in xtr.children[state] if a == action]
+
+        # Choose successor state with highest log likelihood at time + 1
+        ml = -np.inf
+        next_state = None
+        for s2 in successor_states:
+            s2_ll = s_lls[s2, time + 1]
+            if s2_ll >= ml:
+                next_state = s2
+                ml = s2_ll
+
+        state = next_state
+
+    # Add final (goal) state
+    ml_path.append((state, None))
+
+    return ml_path
 
 
 def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
