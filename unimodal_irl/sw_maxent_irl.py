@@ -572,10 +572,15 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
     return path_log_probs
 
 
-def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False):
+def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
     """Find the ML path from s1 to sg under a MaxEnt model
     
     If transitions can inccur +ve rewards te returned paths may contain loops
+    
+    NB ajs 14/Jan/2020 The log likelihood of the path that we compute internally
+        is fine for doing viterbi ML path inference, but it's not the actual path
+        log likelihood - it's missing the partition function, and the gamma time offset
+        is incorrect (depending on what start time the Viterbi alg picks).
     
     Args:
         xtr (DiscreteExplicitExtras): MDP Extras object
@@ -584,8 +589,6 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False
         start (int): Starting state
         goal (int): End state
         max_path_length (int): Maximum allowable path length to search
-        
-        with_ll (bool): Also return the log likelihood of the path
     
     Returns:
         (list): Maximum Likelihood path from start to goal under the given MaxEnt reward
@@ -593,60 +596,63 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False
     """
 
     rs, rsa, rsas = reward.structured(xtr, phi)
-    
+
     # We check if the rewards are all \le 0 - this allows a sp
-    all_negative_rewards = np.max(rs) <= 0 and np.max(rsa.flat) <= 0 and np.max(rsas.flat) <= 0
-    
+    all_negative_rewards = (
+        np.max(rs) <= 0 and np.max(rsa.flat) <= 0 and np.max(rsas.flat) <= 0
+    )
+
     # Initialize an SxA LL Viterbi trellis
     sa_lls = np.zeros((len(xtr.states), len(xtr.actions), max_path_length)) - np.inf
-    sa_lls[goal, :, :] = 0.0
-    
+    sa_lls[goal, :, :] = xtr.gamma ** np.arange(max_path_length) * rs[goal]
+
     # Supress divide by zero - we take logs of many zeroes here
-    with np.errstate(divide='ignore'):
-        
+    with np.errstate(divide="ignore"):
+
         # Walk backward to propagate the maximum LL
         for t in range(max_path_length - 2, -1, -1):
-    
+
             # Max-Reduce over actions to compute state LLs
             # (it's a max because we get to choose our actions)
             s_lls = np.max(sa_lls, axis=1)
-            
+
             if not np.any(np.isneginf((s_lls[:, t + 1]))):
                 # The backward message has propagated to every state one step in the future
                 if all_negative_rewards:
                     # In this context we are after a shortest path
                     # Drop any earlier times from the trellis and early stop the backward pass
-                    sa_lls = sa_lls[:, :, t + 1:]
+                    sa_lls = sa_lls[:, :, t + 1 :]
                     break
-    
+
             # Sweep end states
             for s2 in xtr.states:
-    
+
                 if np.isneginf(s_lls[s2, t + 1]):
                     # Skip this state - it hasn't been reached by probability messages yet
                     continue
-    
+
                 # Sweep actions
                 for a in xtr.actions:
-    
+
                     # Sweep starting states
                     for s1 in xtr.states:
-                        
+
                         if xtr.terminal_state_mask[s1]:
                             # We can't step forward from terminal states - skip this one
                             continue
-                        
+
                         transition_ll = (
                             xtr.gamma ** (t - 1) * rs[s1]
                             + xtr.gamma ** (t) * rsa[s1, a]
                             + xtr.gamma ** (t) * rsas[s1, a, s2]
+                            # + xtr.gamma ** (t + 1) * rs[s2]
                             + np.log(xtr.t_mat[s1, a, s2])
                         )
-                        
+
                         if np.isneginf(transition_ll):
                             # This transition is impossible - skip
                             continue
-    
+
                         # Store the max because we're after the maximum likelihood path
                         sa_lls[s1, a, t] = max(
                             sa_lls[s1, a, t], transition_ll + s_lls[s2, t + 1]
@@ -658,12 +664,8 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False
     # Identify our starting time
     if np.isneginf(np.max(s_lls[start])):
         # There is no feasible path from s1 to sg less or equal to than max_path_length
-        if not with_ll:
-            return None
-        else:
-            return None, -np.inf
+        return None
     start_time = np.argmax(s_lls[start, :])
-    ml_path_ll = s_lls[start, start_time]
 
     # Walk forward from start state, start time to re-construct path
     state = start
@@ -684,14 +686,12 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length, with_ll=False
                 ml = s2_ll
 
         state = next_state
+        time = time + 1
 
     # Add final (goal) state
     ml_path.append((state, None))
-    
-    if not with_ll:
-        return ml_path
-    else:
-        return ml_path, ml_path_ll
+
+    return ml_path
 
 
 def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
