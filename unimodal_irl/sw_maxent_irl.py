@@ -512,8 +512,6 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
     if isinstance(xtr, DiscreteExplicitExtras):
         # Process tabular MDP
 
-        rs, rsa, rsas = reward.structured(xtr, phi)
-
         # Catch float overflow as an error - reward magnitude is too large for
         # exponentiation with this max path length
         with np.errstate(over="raise"):
