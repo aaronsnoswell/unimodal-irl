@@ -179,7 +179,7 @@ def maxlikelihood_ml_path(
 ):
     """Find the ML path from s1 to sg under a MaxLikelihood model
     
-    If transitions can inccur +ve rewards te returned paths may contain loops
+    If transitions can inccur +ve rewards the returned paths may contain loops
     
     NB ajs 14/Jan/2020 The log likelihood of the path that we compute internally
         is fine for doing viterbi ML path inference, but it's not the actual path

@@ -708,7 +708,9 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
             optimized
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
-        phi_bar (numpy array): Feature expectation
+        phi_bar (numpy array): Feature expectation. N.b. if using a weighted feature
+            expectation, it is very important to make sure the weights you used
+            sum to 1.0!
         max_path_length (int): Maximum path length
         nll_only (bool): If true, only return NLL
     
