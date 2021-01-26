@@ -17,7 +17,7 @@ def ile_evd(
     policy_kwargs={},
     pe_kwargs={},
     ret_gt_value=False,
-    gt_policy_value=None
+    gt_policy_value=None,
 ):
     """Find Inverse Learning Error and Expected Value Difference metrics
     
@@ -54,8 +54,8 @@ def ile_evd(
 
     # Get test policy state value function under GT reward
     v_star_test = v_vi(xtr, phi, reward_test, **vi_kwargs)
-    q_star = v2q(v_star_test, xtr, phi, reward_test)
-    pi_star_test = OptimalPolicy(q_star, stochastic=False, **policy_kwargs)
+    q_star_test = v2q(v_star_test, xtr, phi, reward_test)
+    pi_star_test = OptimalPolicy(q_star_test, stochastic=False, **policy_kwargs)
     test_policy_value = pi_eval(xtr, phi, reward_gt, pi_star_test, **pe_kwargs)
 
     value_delta = gt_policy_value - test_policy_value
