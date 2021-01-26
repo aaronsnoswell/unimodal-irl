@@ -1,5 +1,7 @@
 """Metrics for evaluating IRL algorithm performance"""
 
+import warnings
+
 import numpy as np
 from scipy.stats import norm
 
@@ -61,6 +63,17 @@ def ile_evd(
     value_delta = gt_policy_value - test_policy_value
     ile = np.linalg.norm(value_delta, ord=p)
     evd = xtr.p0s @ value_delta
+
+    if evd < 0:
+        warnings.warn(
+            f"EVD is < 0 (by {0 - evd}) - possible loss of accuracy due to numerical rounding"
+        )
+        evd = 0.0
+    if ile < 0:
+        warnings.warn(
+            f"ILE is < 0 (by {0 - ile}) - possible loss of accuracy due to numerical rounding"
+        )
+        ile = 0.0
 
     if not ret_gt_value:
         return ile, evd
