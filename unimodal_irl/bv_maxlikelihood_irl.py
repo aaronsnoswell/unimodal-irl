@@ -14,28 +14,28 @@ def nb_smq_value_iteration(
     t_mat, gamma, rs, rsa, rsas, beta=0.5, eps=1e-6, verbose=False, max_iter=None
 ):
     """Value iteration to find the SoftMax-optimal state-action value function
-    
+
     This bellman recursion is defined in Section 3 of Apprenticeship Learning about
     Multiple Intentions by Babes-Vroman et al. 2011
     (http://www.icml-2011.org/papers/478_icmlpaper.pdf).
-    
+
     Essentially, the max over actions from the regular Q-function is replaced with
     an operator that averages over all possible actions, where the weight of each
     Q(s, a) is given by e^{βQ(s, a)} / Σ_{a'} e^{βQ(s, a')}.
-    
+
     Args:
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         gamma (float): Discount factor
         rs (numpy array): |S| State reward vector
         rsa (numpy array): |S|x|A| State-action reward vector
         rsas (numpy array): |S|x|A|x|S| State-action-state reward vector
-        
+
         beta (float): Boltzmann exploration policy scale parameter
         eps (float): Value convergence tolerance
         verbose (bool): Extra logging
         max_iter (int): If provided, iteration will terminate regardless of convergence
             after this many iterations.
-    
+
     Returns:
         (numpy array): |S|x|A| matrix of state-action values
     """
@@ -98,12 +98,12 @@ def bv_maxlikelihood_irl(
     nll_only=False,
 ):
     """Compute the average rollout Negative Log Likelihood (and gradient) for ML-IRL
-    
+
     This method is biased to prefer shorter paths through any MDP.
-    
+
     TODO ajs 29/Oct/2020 Support SoftMax Q function from Babes-Vroman 2011 paper via
         nb_smq_value_iteration()
-    
+
     Args:
         x (numpy array): Current reward function parameter vector estimate
         xtr (mdp_extras.DiscreteExplicitExtras): Extras object for the MDP being
@@ -111,7 +111,7 @@ def bv_maxlikelihood_irl(
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters. We require len(phi) == len(x).
         rollouts (list): List of (s, a) rollouts.
-        
+
         weights (numpy array): Optional path weights for weighted IRL problems
         boltzmann_scale (float): Optimality parameter for Boltzmann policy. Babes-Vroman
             use 0.5. Values closer to 1.0 cause slower convergence, but values closer to
@@ -178,14 +178,14 @@ def maxlikelihood_ml_path(
     xtr, phi, reward, start, goal, max_path_length, boltzmann_scale=0.5
 ):
     """Find the ML path from s1 to sg under a MaxLikelihood model
-    
+
     If transitions can inccur +ve rewards the returned paths may contain loops
-    
+
     NB ajs 14/Jan/2020 The log likelihood of the path that we compute internally
         is fine for doing viterbi ML path inference, but it's not the actual path
         log likelihood - it's not normalized, and the gamma time offset
         is incorrect (depending on what start time the Viterbi alg picks).
-    
+
     Args:
         xtr (DiscreteExplicitExtras): MDP Extras object
         phi (FeatureFunction): MDP Featrure function
@@ -193,9 +193,9 @@ def maxlikelihood_ml_path(
         start (int): Starting state
         goal (int): End state
         max_path_length (int): Maximum allowable path length to search
-        
+
         boltzmann_scale (float): Boltzmann scale parameter
-    
+
     Returns:
         (list): Maximum Likelihood path from start to goal under the given MaxEnt reward
             function, or None if no path is possible
@@ -208,7 +208,7 @@ def maxlikelihood_ml_path(
     for a in xtr.actions:
         sa_lls[goal, :, :] = boltzmann_scale * q_star[goal, a]
 
-    # Supress divide by zero - we take logs of many zeroes here
+    # Suppress divide by zero - we take logs of many zeroes here
     with np.errstate(divide="ignore"):
 
         # Walk backward to propagate the maximum LL
