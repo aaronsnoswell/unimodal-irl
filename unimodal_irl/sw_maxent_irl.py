@@ -24,17 +24,17 @@ _NINF = np.finfo(np.float64).min
 @jit(nopython=True)
 def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute backward message passing variable in log-space
-    
+
     Args:
         p0s (numpy array): Starting state probabilities
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
-        
+
         gamma (float): Discount factor
         rs (numpy array): |S| array of linear state reward weights
         rsa (numpy array): |S|x|A| array of linear state-action reward weights
         rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward weights
-    
+
     Returns:
         (numpy array): |S|xL array of backward message values in log space
     """
@@ -87,12 +87,12 @@ def nb_backward_pass_log_deterministic_stateonly(
     p0s, L, parents, rs, gamma=1.0, padded=False
 ):
     """Compute backward message passing variable in log-space
-    
+
     This version of the backward pass function makes extra assumptions so we can handle
     some much larger problems
      - Dynamics are deterministic
      - Rewards are state-only
-    
+
     Args:
         p0s (numpy array): Starting state probabilities
         L (int): Maximum path length
@@ -100,11 +100,11 @@ def nb_backward_pass_log_deterministic_stateonly(
             states, and the first X elements of each row contain the parent state IDs
             for that state. Any remaining elements of that row are then -1.
         rs (numpy array): |S| array of linear state reward weights
-        
+
         gamma (float): Discount factor
         padded (bool): Is this MDP padded? In which case, we need to handle the parents
             array with extra caution (it won't have the auxiliary state/action included)
-    
+
     Returns:
         (numpy array): |S|xL array of backward message values in log space
     """
@@ -163,17 +163,17 @@ def nb_backward_pass_log_deterministic_stateonly(
 @jit(nopython=True)
 def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
     """Compute forward message passing variable in log space
-    
+
     Args:
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         children (dict): Dictionary mapping states to (a, s') child tuples
-        
+
         gamma (float): Discount factor
         rs (numpy array): Linear state reward weights
         rsa (numpy array): Linear state-action reward weights
         rsas (numpy array): Linear state-action-state reward weights
-    
+
     Returns:
         (numpy array): |S| x L array of forward message values in log space
     """
@@ -225,21 +225,21 @@ def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
 @jit(nopython=True)
 def nb_forward_pass_log_deterministic_stateonly(L, children, rs, gamma=1.0):
     """Compute forward message passing variable in log space
-    
+
     This version of the forward pass function makes extra assumptions so we can handle
     some much larger problems
      - Dynamics are deterministic
      - Rewards are state-only
-    
+
     Args:
         L (int): Maximum path length
         children (numpy array): Fixed-size children array. Rows indices correspond to
             states, and the first X elements of each row contain the child state IDs
             for that state. Any remaining elements of that row are then -1.
         rs (numpy array): Linear state
-        
+
         gamma (float): Discount factor
-    
+
     Returns:
         (numpy array): |S| x L array of forward message values in log space
     """
@@ -277,19 +277,19 @@ def nb_marginals_log(
     L, t_mat, alpha_log, beta_log, Z_theta_log, gamma=1.0, rsa=None, rsas=None
 ):
     """Compute marginal terms
-    
+
     Args:
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
         alpha_log (numpy array): |S|xL array of backward message values in log space
         beta_log (numpy array): |S|xL array of forward message values in log space
         Z_theta_log (float): Partition value in log space
-        
+
         gamma (float): Discount factor
         rsa (numpy array): |S|x|A| array of linear state-action reward weights
         rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward
             weights
-    
+
     Returns:
         (numpy array): |S|xL array of state marginals in log space
         (numpy array): |S|x|A|xL array of state-action marginals in log space
@@ -369,7 +369,7 @@ def nb_marginals_log_deterministic_stateonly(
     L, children, alpha_log, beta_log, Z_theta_log
 ):
     """Compute marginal terms
-    
+
     This version of the marginal function makes extra assumptions so we can handle
     some much larger problems
      - Dynamics are deterministic
@@ -437,14 +437,14 @@ def nb_marginals_log_deterministic_stateonly(
 
 def log_partition(L, alpha_log, padded=True):
     """Compute the log partition function
-    
+
     Args:
         L (int): Maximum path length
         alpha_log (numpy array): |S|xL backward message variable in log space
-        
+
         padded (bool): If true, the final row of the alpha matrix corresponds
             to a dummy state which is used for MDP padding
-        
+
     Returns:
         (float): Partition function value
     """
@@ -463,23 +463,23 @@ def log_partition(L, alpha_log, padded=True):
 def maxent_log_likelihood(xtr, phi, reward, rollouts, weights=None):
     """
     Find the average log likelihood of a set of paths under a MaxEnt model
-    
+
     That is,
-    
+
     \hat{\ell}(\theta) = \E_{\Data}[ \log p(\tau \mid \theta)
-    
+
     To get the total log-likelihood of the dataset (i.e. gets larger as you add more
     data), multiply the value returned by this function with len(rollouts).
-    
+
     To get the total data likelihood, take the exponent of that value.
-    
+
     Args:
         xtr (mdp_extras.DiscreteExplicitExtras): MDP extras
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters.
         reward (mdp_extras.RewardFunction): Reward function
         rollouts (list): List of rollouts, each a list of (s, a) tuples
-        
+
     Returns:
         (float): Average log-likelihood of the paths in rollouts under the given reward
     """
@@ -491,14 +491,14 @@ def maxent_log_likelihood(xtr, phi, reward, rollouts, weights=None):
 
 def maxent_path_logprobs(xtr, phi, reward, rollouts):
     """Efficiently compute log probability of a set of paths
-    
+
     Args:
         xtr (mdp_extras.DiscreteExplicitExtras): MDP extras
         phi (mdp_extras.FeatureFunction): Feature function to use with linear reward
             parameters.
         reward (mdp_extras.RewardFunction): Reward function
         rollouts (list): List of rollouts, each a list of (s, a) tuples
-        
+
     Returns:
         (list): List of log-probabilities under a MaxEnt model of paths
     """
@@ -572,14 +572,14 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
 
 def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
     """Find the ML path from s1 to sg under a MaxEnt model
-    
+
     If transitions can inccur +ve rewards te returned paths may contain loops
-    
+
     NB ajs 14/Jan/2020 The log likelihood of the path that we compute internally
         is fine for doing viterbi ML path inference, but it's not the actual path
         log likelihood - it's missing the partition function, and the gamma time offset
         is incorrect (depending on what start time the Viterbi alg picks).
-    
+
     Args:
         xtr (DiscreteExplicitExtras): MDP Extras object
         phi (FeatureFunction): MDP Featrure function
@@ -587,7 +587,7 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
         start (int): Starting state
         goal (int): End state
         max_path_length (int): Maximum allowable path length to search
-    
+
     Returns:
         (list): Maximum Likelihood path from start to goal under the given MaxEnt reward
             function, or None if no path is possible
@@ -694,14 +694,14 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
 
 def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
     """Maximum Entropy IRL using our exact algorithm
-    
+
     Returns NLL and NLL gradient of the demonstration data under the proposed reward
     parameters x.
-    
+
     N.b. the computed NLL here doesn't include the contribution from the MDP dynamics
     for each path - this term is independent of the parameter x, so doesn't affect the
     optimization result.
-    
+
     Args:
         x (numpy array): Current reward function parameter vector estimate
         xtr (mdp_extras.BaseExtras): Extras object for the MDP being
@@ -713,12 +713,12 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
             sum to 1.0!
         max_path_length (int): Maximum path length
         nll_only (bool): If true, only return NLL
-    
+
     Returns:
         (float): Negative Log Likelihood of a MaxEnt model with x as the reward
             parameters and the given feature expectation
         (numpy array): Downhill gradient of negative log likelihood at the given point
-    
+
     """
 
     # Store current argument guess
