@@ -1,4 +1,6 @@
 import copy
+from pprint import pprint
+
 import numpy as np
 import warnings
 
@@ -6,7 +8,13 @@ import itertools as it
 
 from numba import jit
 
-from mdp_extras import Linear, q_vi, q_grad_fpi, BoltzmannExplorationPolicy
+from mdp_extras import (
+    Linear,
+    vi,
+    q_grad_fpi,
+    BoltzmannExplorationPolicy,
+    OptimalPolicy,
+)
 
 
 @jit(nopython=True)
@@ -126,7 +134,7 @@ def bv_maxlikelihood_irl(
 
     # Compute Q*, pi* for current reward guess
     reward = Linear(x)
-    q_star = q_vi(xtr, phi, reward)
+    _, q_star = vi(xtr, phi, reward)
 
     # To use the soft Q function from Babes-Vroman's paper, uncomment below
     # q_star = nb_smq_value_iteration(
@@ -201,7 +209,7 @@ def maxlikelihood_ml_path(
             function, or None if no path is possible
     """
 
-    q_star = q_vi(xtr, phi, reward)
+    _, q_star = vi(xtr, phi, reward)
 
     # Initialize an SxA LL Viterbi trellis
     sa_lls = np.zeros((len(xtr.states), len(xtr.actions), max_path_length)) - np.inf
@@ -286,6 +294,42 @@ def maxlikelihood_ml_path(
 
 def main():
     """Main function"""
+
+    # Test BV on PuddleWorld
+    from scipy.optimize import minimize
+
+    # from multimodal_irl.envs import CanonicalPuddleWorldEnv, puddle_world_extras
+    from multimodal_irl.envs import ElementWorldEnv, element_world_extras
+
+    # env = CanonicalPuddleWorldEnv(wind=0.0)
+    # xtr, phi, gt_rewards = puddle_world_extras(env)
+    # reward = gt_rewards["dry"]
+
+    env = ElementWorldEnv(wind=0.1, num_elements=3)
+    xtr, phi, gt_rewards = element_world_extras(env)
+    reward = gt_rewards[0]
+    print(reward.theta)
+
+    scale = 2.0
+    _, q_star = vi(xtr, phi, reward)
+    pi_star = BoltzmannExplorationPolicy(q_star, scale=scale)
+    demo_star = pi_star.get_rollouts(env, 10)
+    phi_bar_star = phi.demo_average(demo_star, xtr.gamma)
+    print(phi_bar_star)
+
+    x0 = np.zeros(len(phi))
+    bounds = np.array([(-10.0, 0.0) for _ in range(len(phi))])
+    res = minimize(
+        bv_maxlikelihood_irl,
+        x0,
+        args=(xtr, phi, demo_star, None, scale),
+        jac=True,
+        bounds=bounds,
+        options=dict(disp=True),
+    )
+
+    print(res)
+
     pass
 
 

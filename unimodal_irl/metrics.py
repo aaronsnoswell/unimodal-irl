@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from scipy.stats import norm
 
-from mdp_extras import v_vi, v2q, OptimalPolicy, pi_eval
+from mdp_extras import vi, v2q, OptimalPolicy, pi_eval
 
 
 def ile_evd(
@@ -22,29 +22,29 @@ def ile_evd(
     gt_policy_value=None,
 ):
     """Find Inverse Learning Error and Expected Value Difference metrics
-    
+
     Inverse Learning Error is defined in "Inverse reinforcement learning in partially
     observable environments." by Choi and Kim, 2011.
-    
+
     Expected Value Difference is defined in "Nonlinear inverse reinforcement learning
     with gaussian processes." by Levine, et al. 2011. EVD is essentially a weighted
     version of ILE, that only considers states with non-zero starting probability.
-    
+
     Args:
         xtr (mdp_extras.DiscreteExplicitExtras) MDP extras object
         phi (mdp_extras.FeatureFunction) Feature function for MDP
         reward_gt (mdp_extras.RewardFunction): Ground Truth reward function for MDP
         reward_test (mdp_extras.RewardFunction): Learned reward function for MDP
-        
+
         p (int): p-Norm to use for ILE, Choi and Kim and other papers recommend p=1
-        vi_kwargs (dict): Extra keyword args for mdp_extras.v_vi Value Iteration method
+        vi_kwargs (dict): Extra keyword args for mdp_extras.vi Value Iteration method
         policy_kwargs (dict): Extra keyword args for mdp_extras.OptimalPolicy
         pe_kwargs (dict): Extra keyword args for mdp_extras.pi_eval Policy Evaluation method
         ret_gt_value (bool): If true, also return the GT policy state value function,
             can be used for speeding up future calls
         gt_policy_value (numpy array): Optional ground truth policy state value function
             - used for speeding up this function with multiple calls
-    
+
     Returns:
         (float): Inverse Learning Error metric
         (float): Expected Value Difference metric
@@ -52,11 +52,10 @@ def ile_evd(
 
     if gt_policy_value is None:
         # Get GT policy state value function
-        gt_policy_value = v_vi(xtr, phi, reward_gt, **vi_kwargs)
+        gt_policy_value, _ = vi(xtr, phi, reward_gt, **vi_kwargs)
 
     # Get test policy state value function under GT reward
-    v_star_test = v_vi(xtr, phi, reward_test, **vi_kwargs)
-    q_star_test = v2q(v_star_test, xtr, phi, reward_test)
+    v_star_test, q_star_test = vi(xtr, phi, reward_test, **vi_kwargs)
     pi_star_test = OptimalPolicy(q_star_test, stochastic=False, **policy_kwargs)
     test_policy_value = pi_eval(xtr, phi, reward_gt, pi_star_test, **pe_kwargs)
 
@@ -83,11 +82,11 @@ def ile_evd(
 
 def mean_ci(values, confidence_level=0.95):
     """Compute mean and symmetric confidence interval for a list of values
-    
+
     Args:
         values (list): List of float
         confidence_level (float): Confidence level
-    
+
     Returns:
         (float): Lower confidence interval
         (float): Mean value
@@ -109,14 +108,14 @@ def mean_ci(values, confidence_level=0.95):
 
 def median_ci(values, confidence_level=0.95):
     """Compute median and approximate confidence interval for a list of values
-    
+
     The method of computing the CI is taken from
     https://www.ucl.ac.uk/child-health/short-courses-events/about-statistical-courses/research-methods-and-statistics/chapter-8-content-8
-    
+
     Args:
         values (list): List of float
         confidence_level (float): Confidence level
-    
+
     Returns:
         (float): Lower approximate confidence interval
         (float): Median value
