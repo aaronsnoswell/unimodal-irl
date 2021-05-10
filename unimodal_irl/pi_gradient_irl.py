@@ -66,7 +66,7 @@ class LinearPolicy(nn.Module):
         x = self.fc1(x.float())
         return x
 
-    def sample(self, x):
+    def act(self, x):
         x = self(x)
         action_probs = F.softmax(x, dim=0)
         return Categorical(action_probs).sample()
