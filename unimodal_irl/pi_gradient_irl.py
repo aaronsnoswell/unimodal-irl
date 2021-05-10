@@ -8,12 +8,12 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 from scipy.stats import multivariate_normal
+from scipy.linalg import null_space
 
-# Hyperparameters
-learning_rate = 0.0002
+from mdp_extras import FeatureFunction
 
 
-class MCGaussianBasis:
+class MCGaussianBasis(FeatureFunction):
     """Feature function for MountainCar
 
     A set of Gaussian functions spanning the state space
@@ -21,7 +21,9 @@ class MCGaussianBasis:
 
     def __init__(self, num=5, pos_range=(-1.2, 0.6), vel_range=(-0.07, 0.07)):
         """C-tor"""
+        super().__init__(self.Type.OBSERVATION)
 
+        self.dim = num ** 2
         pos_delta = pos_range[1] - pos_range[0]
         vel_delta = vel_range[1] - vel_range[0]
 
@@ -44,9 +46,13 @@ class MCGaussianBasis:
 
         self.rvs = [multivariate_normal(m, covariance) for m in means]
 
-    def __call__(self, *args, **kwargs):
-        """Query the feature function"""
-        return np.array([rv.pdf(args[0]) for rv in self.rvs])
+    def __len__(self):
+        """Get the length of the feature vector"""
+        return self.dim
+
+    def __call__(self, o1, a=None, o2=None):
+        """Get feature vector given state(s) and/or action"""
+        return np.array([rv.pdf(o1) for rv in self.rvs])
 
 
 class LinearPolicy(nn.Module):
@@ -57,9 +63,9 @@ class LinearPolicy(nn.Module):
         super(LinearPolicy, self).__init__()
         self.lr = lr
 
-        self.fc1 = nn.Linear(f_dim, 3)  # Accelerate to left, No-op, Accelerate to right
+        self.fc1 = nn.Linear(f_dim, 1, bias=False)
 
-        self.loss_fn = nn.CrossEntropyLoss()
+        # self.loss_fn = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, x):
@@ -67,17 +73,24 @@ class LinearPolicy(nn.Module):
         return x
 
     def act(self, x):
-        x = self(x)
-        action_probs = F.softmax(x, dim=0)
-        return Categorical(action_probs).sample()
+        return self(x)
 
-    def behaviour_clone(self, dataset, num_epochs=1000, log_interval=20):
-        # Flatten dataset
+    def behaviour_clone(self, dataset, phi, num_epochs=1000, log_interval=None):
+        """Behaviour cloning using full-batch gradient descent
+
+        Args:
+            dataset (list): List of (s, a) rollouts to clone from
+            phi (FeatureFunction): Feature function accepting states and outputting feature vectors
+
+            num_epochs (int): Number of epochs to train for
+            log_interval (int): Logging interval, set to 0 to do no logging
+        """
+        # Convert states to features, and flatten dataset
         phis = []
         actions = []
         for path in dataset:
-            _phis, _actions = zip(*path[:-1])
-            phis.extend(_phis)
+            _states, _actions = zip(*path[:-1])
+            phis.extend([phi(s) for s in _states])
             actions.extend(_actions)
         phis = torch.tensor(phis)
         actions = torch.tensor(actions)
@@ -85,11 +98,12 @@ class LinearPolicy(nn.Module):
         for epoch in range(num_epochs):
             # Run one epoch of training
             self.optimizer.zero_grad()
-            loss = self.loss_fn(self(phis), actions)
+            # loss = self.loss_fn(self(phis), actions)
+            loss = torch.mean(torch.norm(self(phis) - actions, dim=0) ** 2)
             loss.backward()
             self.optimizer.step()
 
-            if epoch % log_interval == 0:
+            if log_interval is not None and epoch % log_interval == 0:
                 print(f"Epoch {epoch}, loss={loss.item()}")
 
         return self
@@ -99,15 +113,16 @@ def pi_heuristic(s):
     position, velocity = s
     if velocity < 0:
         # Accelerate to left
-        return torch.tensor([1.0, 0.0, 0.0])
+        return torch.tensor([-1])
     else:
         # Accelerate to right
-        return torch.tensor([0.0, 0.0, 1.0])
+        return torch.tensor([+1])
 
 
 def main():
 
-    env = gym.make("MountainCar-v0")
+    env = gym.make("MountainCarContinuous-v0")
+    gamma = 0.99
     basis_dim = 5
     phi = MCGaussianBasis(num=basis_dim)
 
@@ -123,17 +138,73 @@ def main():
         done = False
         s = env.reset()
         while not done:
-            a = Categorical(pi_expert(s)).sample()
-            path.append((phi(s), a.item()))
-            s_prime, r, done, info = env.step(a.item())
+            a = pi_expert(s).numpy()
+            path.append((s, a))
+            s_prime, r, done, info = env.step(a)
             s = s_prime
-        path.append((phi(s), None))
+        path.append((s, None))
         dataset.append(path)
 
     # Behaviour cloning to copy demo data with linear policy
-    pi = LinearPolicy(basis_dim ** 2).behaviour_clone(dataset)
+    pi = LinearPolicy(len(phi)).behaviour_clone(dataset, phi, log_interval=20)
+
+    for _ in range(5):
+        done = False
+        s = env.reset()
+        while not done:
+            a = pi(torch.tensor(phi(s))).detach().numpy()
+            s2, r, done, info = env.step(a)
+            s = s2
+            # env.render()
 
     # Get the policy gradient on our demo dataset
+    phi_bar = phi.demo_average(dataset, gamma=gamma)
+    total_grad = np.zeros(len(phi))
+    for p in dataset:
+        for s, a in p[:-1]:
+            feat = phi(s)
+            nabla_log_pi = feat / pi(torch.tensor(feat)).item()
+            total_grad += nabla_log_pi
+    total_grad /= len(dataset)
+
+    # Take outer product to form jacobian
+    jac = total_grad.reshape(-1, 1) @ phi_bar.reshape(1, -1)
+
+    # Solve for jacobian null space
+    # jac_rank = np.linalg.matrix_rank(jac)
+    ns = null_space(jac)
+
+    # Do we have an effective null space?
+    if ns.shape[1] > 0:
+        # Do we have an all positive or all negative null space?
+        if (ns >= 0).all() or (ns <= 0).all():
+            weights = ns[:, 0] / np.sum(ns[:, 0])
+            P = np.dot(jac.T, jac)
+            loss = np.dot(np.dot(weights.T, P), weights)
+            print("Done")
+        else:
+            pass
+            # Need to solve a linear program to find null space
+            # The following is from the sigma-girl paper repo
+            # import cdd
+            # A = np.array(ns)
+            # b = np.zeros(A.shape[0]).reshape(-1, 1)
+            # mat = cdd.Matrix(np.hstack([b, -A]), number_type="float")
+            # mat.rep_type = cdd.RepType.INEQUALITY
+            # V = np.array(cdd.Polyhedron(mat).get_generators())[:, 1:]
+            # if V.shape[0] != 1 and (V != 0).any():
+            #     weights = V
+            #     weights = ns @ weights.T
+            #     weights /= np.sum(weights)
+            #     P = np.dot(jac.T, jac)
+            #     loss = np.dot(np.dot(weights.T, P), weights)
+            #     print("Done")
+
+    else:
+        # Need to solve a quadratic program to find null space
+        raise NotImplementedError
+
+    # If it still fails, we run Sigma-GIRL
 
     assert False
 
