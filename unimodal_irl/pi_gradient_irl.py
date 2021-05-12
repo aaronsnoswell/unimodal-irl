@@ -60,27 +60,55 @@ class MCGaussianBasis(FeatureFunction):
         return np.array([rv.pdf(o1) for rv in self.rvs])
 
 
-class LinearPolicy(nn.Module):
-    """A Linear policy"""
+class MLPGaussianPolicy(nn.Module):
+    """An MLP-Gaussian policy"""
 
-    def __init__(self, f_dim, lr=0.02):
-        """C-tor"""
-        super(LinearPolicy, self).__init__()
+    def __init__(self, f_dim, hidden_size=20, std=0.2, lr=0.02):
+        """C-tor
+
+        Args:
+            f_dim (int): Dimension of input feature vector
+
+            hidden_size (int): Number of hidden units
+            std (float): Fixed standard deviation of gaussian policy
+            lr (float): Learning rate for Adam optimizer
+        """
+        super().__init__()
         self.lr = lr
 
-        self.fc1 = nn.Linear(f_dim, 1, bias=False)
-
-        # self.loss_fn = nn.CrossEntropyLoss()
+        self.fc1 = nn.Linear(f_dim, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+        self.std = std
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, x):
-        x = self.fc1(x.float())
+        # Input is state feature vector phi(s, a)
+        x = x.float()
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        # Output is mean of a gaussian from which we sample an action
         return x
 
-    def act(self, x):
-        return self(x)
+    def sample_action(self, x):
+        mean = self(x)
+        dist = torch.distributions.normal.Normal(mean, self.std)
+        return dist.sample()
 
-    def behaviour_clone(self, dataset, phi, num_epochs=1000, log_interval=None):
+    def log_prob(self, a, x):
+        """Find log probability of an action, given the feature vector x = phi(s)"""
+        mean = self(x)
+        dist = torch.distributions.normal.Normal(mean, self.std)
+        return dist.log_prob(a)
+
+    def param_gradient(self):
+        """Get the gradient of every parameter in a single vector"""
+        vec = []
+        for param in self.parameters():
+            vec.append(param.grad.view(-1))
+        return torch.cat(vec)
+
+    def behaviour_clone(self, dataset, phi, num_epochs=3000, log_interval=None):
         """Behaviour cloning using full-batch gradient descent
 
         Args:
@@ -114,94 +142,6 @@ class LinearPolicy(nn.Module):
         return self
 
 
-def mc_heuristic_policy(s):
-    position, velocity = s
-    if velocity < 0:
-        # Accelerate to left
-        return torch.tensor([-1])
-    else:
-        # Accelerate to right
-        return torch.tensor([+1])
-
-
-def solve_girl_approx(P, seed=None, verbose=False, num_random_retries=100):
-    num_objectives = P.shape[0]
-
-    def quad(w):
-        obj = np.dot(np.dot(w.T, P), w)
-        return obj
-
-    obj_func = quad
-    constraint = {"type": "eq", "fun": lambda w: np.sum(w) - 1}
-    bound = (0, 1)
-    bounds = [bound] * num_objectives
-    if seed is not None:
-        np.random.seed(seed)
-    evaluations = []
-    i = 0
-
-    while i < num_random_retries:
-        x0 = np.random.uniform(0, 1, num_objectives)
-        x0 = x0 / np.sum(x0)
-        res = sp.optimize.minimize(
-            obj_func,
-            x0,
-            method="SLSQP",
-            constraints=constraint,
-            bounds=bounds,
-            options={"ftol": 1e-8, "disp": verbose},
-        )
-        if res.success:
-            evaluations.append([res.x, obj_func(res.x)])
-            i += 1
-    solns, losses = zip(*evaluations)
-    print("Losses were:")
-    print(losses)
-    evaluations = np.array(evaluations)
-    min_index = np.argmin(evaluations[:, 1])
-    x, y = evaluations[min_index, :]
-    return x, y
-
-
-def pi_sigma_girl(P, seed=None, verbose=False, num_random_retries=100):
-    num_objectives = P.shape[0]
-
-    def quad(w):
-        obj = np.dot(np.dot(w.T, P), w)
-        return obj
-
-    obj_func = quad
-    constraint = {"type": "eq", "fun": lambda w: np.sum(w) - 1}
-    bound = (0, 1)
-    bounds = [bound] * num_objectives
-    if seed is not None:
-        np.random.seed(seed)
-    evaluations = []
-    i = 0
-
-    while i < num_random_retries:
-        x0 = np.random.uniform(0, 1, num_objectives)
-        x0 = x0 / np.sum(x0)
-        res = sp.optimize.minimize(
-            obj_func,
-            x0,
-            method="SLSQP",
-            constraints=constraint,
-            bounds=bounds,
-            options={"ftol": 1e-8, "disp": verbose},
-        )
-        if res.success:
-            evaluations.append([res.x, obj_func(res.x)])
-            i += 1
-    solns, losses = zip(*evaluations)
-    print("Losses were:")
-    print(losses)
-    evaluations = np.array(evaluations)
-    min_index = np.argmin(evaluations[:, 1])
-    x, y = evaluations[min_index, :]
-    return x, y
-
-
 def main():
 
     visualize = False
@@ -212,11 +152,11 @@ def main():
     env = gym.make("MountainCarContinuous-v0")
 
     # Form a gaussian basis feature function with basis_dim x basis_dim gaussians distributed through state-space
-    basis_dim = 5
+    basis_dim = 10
     phi = MCGaussianBasis(num=basis_dim)
 
     # Collect dataset of demonstration (s, a) trajectories from expert
-    pi_expert = mc_heuristic_policy
+    pi_expert = lambda s: torch.tensor([-1]) if s[1] < 0 else torch.tensor([+1])
     num_episodes = 20
     print(f"Collecting {num_episodes} expert demonstrations")
     dataset = []
@@ -237,49 +177,51 @@ def main():
     env.close()
 
     # Construct a policy that is a linear function of the basis features
-    pi = LinearPolicy(len(phi))
+    pi = MLPGaussianPolicy(len(phi))
 
     # Perform behaviour cloning to copy demo data with policy
     print("Behaviour cloning linear policy on expert data")
-    pi = pi.behaviour_clone(dataset, phi, log_interval=20)
+    pi = pi.behaviour_clone(dataset, phi, log_interval=100)
 
     if visualize:
         print("Previewing BC-trained linear policy")
-        for episode in range(5):
-            done = False
-            s = env.reset()
-            while not done:
-                state_feature = phi(s)
-                a = pi(torch.tensor(state_feature)).detach().numpy()
-                s, r, done, info = env.step(a)
-                env.render()
-        env.close()
+        with torch.no_grad():
+            for episode in range(5):
+                done = False
+                s = env.reset()
+                while not done:
+                    phi_s = phi(s)
+                    a = pi.sample_action(torch.tensor(phi_s)).detach().numpy()
+                    s, r, done, info = env.step(a)
+                    env.render()
+            env.close()
 
     print("Constructing Jacobian matrix...")
-    # Get the feature expectation from the expert dataset
-    phi_bar = phi.demo_average(dataset, gamma=gamma)
 
-    # Get the average log policy gradient on our demo dataset
-    f = None
-    for p in dataset:
-        # Compute weight for this gradient contrib
-        phi_bar = torch.tensor(phi.onpath(p, gamma=gamma) / len(dataset))
-        for s, a in p[:-1]:
-            if f is None:
-                f = phi_bar * torch.log(pi(torch.tensor(phi(s))))
-            else:
-                f += phi_bar * torch.log(pi(torch.tensor(phi(s))))
-    f.retain_grad()
-    f2 = torch.sum(f)
-    f2.backward()
-    print("Here")
+    jac = []
+    pi.zero_grad()
+    for reward_dim in range(len(phi)):
+        print(f"{reward_dim}/{len(phi)}")
+        f = torch.zeros(1)
+        for demo in dataset:
+            phi_tau = phi.onpath(demo, gamma=gamma)
+            phi_tau_f = phi_tau[reward_dim]
+            weight = 1.0 / len(dataset) * phi_tau_f
+            grad_accum = None
+            for t, (s, a) in enumerate(demo[:-1]):
+                phi_s = torch.tensor(phi(s))
+                if grad_accum is None:
+                    grad_accum = pi.log_prob(torch.tensor(a), phi_s)
+                else:
+                    grad_accum += pi.log_prob(torch.tensor(a), phi_s)
+            f += weight * grad_accum
+        f.backward()
+        jac.append(pi.param_gradient().numpy())
 
-    # Take outer product to form Jacobian matrix
-    # Jacobian is of size d x q, where d is the size of the policy parameter,
-    # and q is the size of the reward parameter, which in this case are the same
-    q = len(phi)
-    d = len(phi)
-    jac = average_log_grad.reshape(-1, 1) @ phi_bar.reshape(1, -1)
+    # Transpose to get jacobian of size d x q, where d is the size of the policy parameter,
+    # and q is the size of the reward parameter
+    jac = np.array(jac).T
+    d, q = jac.shape
 
     # Form 'P' matrix, which is of size q x q (perhaps it stands for 'plane' in plane-GIRL?)
     p_mat = jac.T @ jac
@@ -292,7 +234,9 @@ def main():
 
     # Constrain weights to q-1 simplex
     constraint = {"type": "eq", "fun": lambda omega: np.sum(omega) - 1}
-    bounds = [(0, 1),] * q
+    bounds = [
+        (0, 1),
+    ] * q
 
     # Perform many random restarts to find best local minima
     print("Searching for reward weights...")
@@ -332,8 +276,6 @@ def main():
     plt.colorbar()
     plt.grid()
     plt.show()
-
-    assert False
 
     # P-Girl implementation below
     # # # Solve for jacobian null space
