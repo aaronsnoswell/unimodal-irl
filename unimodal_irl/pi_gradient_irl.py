@@ -142,6 +142,52 @@ class MLPGaussianPolicy(nn.Module):
         return self
 
 
+def form_jacobian(policy, phi, demos, gamma=1.0):
+    """Form policy value jacobian wrt. reward and policy parameters
+
+    TODO ajs 12/May/2021 Optimize + make faster
+
+    Args:
+        policy (Policy object): A policy object providing: .zero_grad() function,
+            .log_prob(a, phi(s)) to get log probability of an action given a state
+            feature vector, and .param_gradient() providing the accumulated auto-diff
+            gradient of each parameter in a single long vector.
+        phi (mdp_extras.FeatureFunction): Feature function
+        demos (list): List of expert demonstrations, each a list of (s, a) tuples
+
+        gamma (float): Discount factor
+
+    Returns:
+        (numpy array): d x q Jacobian matrix, where d = # of policy parameters, q = len(phi)
+    """
+    jac = []
+    policy.zero_grad()
+    for reward_dim in range(len(phi)):
+        print(f"{reward_dim}/{len(phi)}")
+        f = torch.zeros(1)
+        for demo in demos:
+            phi_tau = phi.onpath(demo, gamma=gamma)
+            phi_tau_f = phi_tau[reward_dim]
+            weight = 1.0 / len(demos) * phi_tau_f
+            grad_accum = None
+            for t, (s, a) in enumerate(demo[:-1]):
+                phi_s = torch.tensor(phi(s))
+                if grad_accum is None:
+                    grad_accum = policy.log_prob(torch.tensor(a), phi_s)
+                else:
+                    grad_accum += policy.log_prob(torch.tensor(a), phi_s)
+            f += weight * grad_accum
+        f.backward()
+        jac.append(policy.param_gradient().numpy())
+
+    # Transpose to get jacobian of size d x q, where d is the size of the policy parameter,
+    # and q is the size of the reward parameter
+    jac = np.array(jac).T
+    # d, q = jac.shape
+
+    return jac
+
+
 def main():
 
     visualize = False
@@ -152,7 +198,7 @@ def main():
     env = gym.make("MountainCarContinuous-v0")
 
     # Form a gaussian basis feature function with basis_dim x basis_dim gaussians distributed through state-space
-    basis_dim = 10
+    basis_dim = 4
     phi = MCGaussianBasis(num=basis_dim)
 
     # Collect dataset of demonstration (s, a) trajectories from expert
@@ -196,47 +242,18 @@ def main():
                     env.render()
             env.close()
 
-    print("Constructing Jacobian matrix...")
-
-    jac = []
-    pi.zero_grad()
-    for reward_dim in range(len(phi)):
-        print(f"{reward_dim}/{len(phi)}")
-        f = torch.zeros(1)
-        for demo in dataset:
-            phi_tau = phi.onpath(demo, gamma=gamma)
-            phi_tau_f = phi_tau[reward_dim]
-            weight = 1.0 / len(dataset) * phi_tau_f
-            grad_accum = None
-            for t, (s, a) in enumerate(demo[:-1]):
-                phi_s = torch.tensor(phi(s))
-                if grad_accum is None:
-                    grad_accum = pi.log_prob(torch.tensor(a), phi_s)
-                else:
-                    grad_accum += pi.log_prob(torch.tensor(a), phi_s)
-            f += weight * grad_accum
-        f.backward()
-        jac.append(pi.param_gradient().numpy())
-
-    # Transpose to get jacobian of size d x q, where d is the size of the policy parameter,
-    # and q is the size of the reward parameter
-    jac = np.array(jac).T
+    jac = form_jacobian(pi, phi, dataset, gamma)
     d, q = jac.shape
 
-    # Form 'P' matrix, which is of size q x q (perhaps it stands for 'plane' in plane-GIRL?)
+    # Form 'P' matrix
     p_mat = jac.T @ jac
 
     # Form loss function for sigam-girl
-    def loss_fn(omega):
-        """Find loss for a given reward weight vector omega"""
-        # return np.dot(np.dot(omega.T, p_mat), omega)
-        return (omega.T @ p_mat) @ omega
+    loss_fn = lambda w: (w.T @ p_mat) @ w
 
     # Constrain weights to q-1 simplex
-    constraint = {"type": "eq", "fun": lambda omega: np.sum(omega) - 1}
-    bounds = [
-        (0, 1),
-    ] * q
+    constraint = {"type": "eq", "fun": lambda w: np.sum(w) - 1}
+    bounds = [(0, 1)] * q
 
     # Perform many random restarts to find best local minima
     print("Searching for reward weights...")
@@ -344,10 +361,6 @@ def main():
     # #
     # #         seed = 1234
     # #         weights, loss = solve_girl_approx(P, seed=seed)
-    #
-    # seed = 1234
-    # weights, loss = solve_girl_approx(P, seed=seed)
-    # loss = np.dot(np.dot(weights.T, P), weights)
 
     print("Done")
 
