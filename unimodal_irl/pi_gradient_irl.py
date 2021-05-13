@@ -179,122 +179,22 @@ class LinearGaussianPolicy:
         return ret.flatten()  # (|A|x|S|) gradient vector
 
 
-def compute_gradient(
+def episode_jacobian(
     pi,
-    state_dataset,
-    action_dataset,
-    feature_dataset,
-    done_dataset,
-    episode_length,
+    states,
+    actions,
+    features,
     discount_f=0.9,
 ):
     """
+    Find Jacobian matrix for a single episode
 
     Args:
-        pi (?): Policy object, provides the following methods;
-         - get_weights
-         - set_weights
-         - act
-         - set
-         - compute_gradients
-
-        disocunt_f (float): Discount factor for MDP
-
-
-    Returns:
-        (numpy array): Shape is num_episodes, policy_parameter_dimension, reward_parameter_dimension
-    """
-    steps = len(state_dataset)
-    feature_dim = len(feature_dataset[0])
-
-    # discounted reward features computation
-    gamma = discount_f ** np.arange(episode_length)
-    num_episodes = np.sum(done_dataset)
-    print("Episodes:", num_episodes)
-    discounted_phi = []
-    for episode in range(num_episodes):
-        base = episode * episode_length
-        phi = np.array(
-            feature_dataset[base : base + episode_length]
-        )  # Step x Feature dim
-        gamma_tiled = np.tile(gamma, (feature_dim, 1))  # Feature Dim x Steps
-        gamma_tiled = gamma_tiled.transpose()  # Steps x Feature Dim
-        episode_discounted_phi = phi * gamma_tiled  # Step x Feature Dim
-        discounted_phi.append(episode_discounted_phi)
-    discounted_phi = np.array(discounted_phi)  # Episode X Step X Feature dim
-    expected_discounted_phi = discounted_phi.sum(axis=0)  # Step X Feature Dim
-    expected_discounted_phi = expected_discounted_phi.sum(axis=0)  # Feature Dim x 1
-    expected_discounted_phi /= num_episodes  # Feature Dim x 1
-    print("Feature Expectation:", expected_discounted_phi)
-
-    # computing the gradients of the logarithm of the policy wrt policy parameters
-
-    step_gradients = []  # Step x Gradient Dim
-    for step in range(steps):
-        step_gradient = pi.compute_gradients(
-            state_dataset[step], action_dataset[step]
-        )  # Gradient Dim is (|S|x|A|) flat - the dimension of the policy parameter vector
-        step_gradients.append(step_gradient)
-
-    # Slice flat step gradient list into episode gradient chunks
-    gradients = []
-    for episode in range(num_episodes):
-        base = episode * episode_length
-        gradients.append(step_gradients[base : base + episode_length])
-    gradients = np.array(gradients)  # Episode x Step x Gradient Dim
-
-    # Measure gradient dimension
-    gradient_dim = gradients.shape[2]
-
-    # Repeat epsiode gradients over feature dimension
-    rep_gradients = np.tile(
-        gradients, (feature_dim, 1, 1, 1)
-    )  # Feature Dim x Episodes x Step x Gradients Dim
-
-    # Shuffle dimensions
-    rep_gradients = np.transpose(
-        rep_gradients, axes=[1, 2, 3, 0]
-    )  # Episodes x Steps x Gradient Dim x Feature Dim
-
-    # Cumulative sum over timesteps to get cumulative gradients
-    cum_gradients = rep_gradients.cumsum(
-        axis=1
-    )  # Episodes x Steps (Cumulative) x Gradient Dim x Feature Dim
-
-    # Repeat discounted feature counts over gradient dimensions
-    rep_discounted_phi = np.tile(
-        discounted_phi, (gradient_dim, 1, 1, 1)
-    )  # Gradient Dim x Episode x Step x Feature Dim
-    phi = np.transpose(
-        rep_discounted_phi, axes=[1, 2, 0, 3]
-    )  # Episode x Step x Gradient Dim x Feature Dim
-
-    # Combine cumulative gradients with feature counts
-    tmp = cum_gradients * phi  # Episode x Step x Gradient Dim x Feature Dim
-    # Sum over steps to get final gradient tensor
-    estimated_gradients = tmp.sum(axis=1)  # Episode x Gradient Dim x Feature Dim
-
-    # Esimtated gradients is of shape
-    # Epsiode x Gradient Dim x Feature Dim
-    return estimated_gradients
-
-
-def compute_gradient_1ep(
-    pi,
-    episode_states,
-    episode_actions,
-    episode_features,
-    discount_f=0.9,
-):
-    """
-
-    Args:
-        pi (?): Policy object, provides the following methods;
-         - get_weights
-         - set_weights
-         - act
-         - set
-         - compute_gradients
+        pi (class): Policy object, providing a method compute_gradients(s, a) that returns the log gradient of the
+            policy for action a given state s
+        states (numpy array): State vector at each timestep
+        actions (numpy array): Action vector at each timestep
+        features (numpy array): reward feature vector at each timestep
 
         disocunt_f (float): Discount factor for MDP
 
@@ -373,40 +273,36 @@ def main():
     pi = LinearGaussianPolicy(weights=weights, noise=noise)
 
     # State vector is indicator for which of 4 states we are in, with one dummy indicator
-    state_dataset = np.array(
+    episode_states = np.array(
         [  # Steps
             [1.0, 0.0, 0.0, 1.0],  # State dim
             [1.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],  # End of episode
+            [0.0, 1.0, 0.0, 1.0],
         ]
     )
 
-    action_dataset = np.array(
+    episode_actions = np.array(
         [  # Steps
             [1.0],  # Action dim
             [1.0],
             [1.0],
-            [0.0],  # End of episode
+            [0.0],
         ]
     )
 
     # Reward feature vector is regular / terminal state / dummy feature x 3
-    feature_dataset = np.array(
+    episode_features = np.array(
         [  # Steps
             [1.0, 0.0, 1.0, 1.0, 1.0],  # Feature dimension
             [1.0, 0.0, 1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0, 1.0, 1.0],  # End of episode
+            [0.0, 1.0, 1.0, 1.0, 1.0],
         ],
     )
 
     # Gradient Dim x Feature Dim
-    grads_1ep = compute_gradient_1ep(
-        pi,
-        state_dataset,
-        action_dataset,
-        feature_dataset,
-        done_dataset,
-    )
+    grads_1ep = episode_jacobian(pi, episode_states, episode_actions, episode_features)
+
+    # TODO: Find this jacobian term for each epsiode, then take mean over all episodes to get the actual jacobian
 
     assert False
 
