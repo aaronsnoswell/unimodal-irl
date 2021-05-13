@@ -51,30 +51,25 @@ which roughly transliterated is as follows
     b = np.ones(reward_dim)
     G = np.diag(np.diag(A))
     h = np.zeros(reward_dim)
-    solver = "quadprog"
 
     try:
-        weights = solve_qp(P, q, -G, h, A=A, b=b, solver=solver)
+        weights = solve_qp(P, q, -G, h, A=A, b=b, solver="quadprog")
     except ValueError:
         try:
             normalized_P = P / np.linalg.norm(P)
-            weights = solve_qp(normalized_P, q, -G, h, A=A, b=b, solver=solver)
+            weights = solve_qp(normalized_P, q, -G, h, A=A, b=b, solver="quadprog")
         except:
             # If we've still failed to get a reward vector, NOW try Sigma-GIRL
 
 """
 
-import gym
 import torch
 import numpy as np
 import scipy as sp
-import itertools as it
 
-from torch.distributions import Categorical
+from mdp_extras import MLPCategoricalPolicy
 
-
-from mdp_extras import FeatureFunction, MLPGaussianPolicy
-from mdp_extras.envs.mountain_car import GaussianBasis
+from mdp_extras import *
 
 
 def form_jacobian(policy, phi, demos, gamma=1.0):
@@ -126,64 +121,338 @@ def form_jacobian(policy, phi, demos, gamma=1.0):
     return jac
 
 
+class LinearGaussianPolicy:
+    """A linear policy with diagonal gaussian noise, i.e.
+
+    a = W * s + Normal(0, I * sigma)
+
+    """
+
+    def __init__(self, weights, noise=1.0):
+        """C-tor
+
+        Args:
+            weights (numpy array): |A|x|S| weight matrix mapping inputs to outputs
+
+            noise (float): Multivariate gaussian diagonal standard deviation scale from the mean action vector
+        """
+        self.weights = weights  # |A|x|S| weight matrix
+        self.output, self.input = self.weights.shape
+        self.noise_cov = np.diag(
+            np.ones(self.output) * noise
+        )  # |A|x|A| covariance matrix
+
+    def act(self, s, stochastic=True):
+        """Sample an action
+
+        Args:
+            s (numpy array): |S| state vector
+
+            stochastic (bool): If true, sample a stochastic action around the mean, if false, just return the computed
+                mean action
+
+        Returns:
+            (numpy array): |A| action vector
+        """
+
+        s = s.reshape(self.input, 1)  # |S|x1 state vector
+        a = self.weights @ s  # |A|x1 action vector
+
+        if stochastic:
+            noise = np.random.multivariate_normal(
+                np.zeros(self.output),  # Mean vector
+                self.noise_cov,  # Covariance matrix
+                1,  # Size (# samples)
+            ).T  # |A|x1 noise vector
+            a += noise  # |A|x1 action vector
+
+        return a
+
+    def compute_gradients(self, s, a):
+        s = np.array(s).reshape(self.input, 1)  # |S|x1 state vector
+        a = np.array(a).reshape(self.output, 1)  # |A|x1 action vector
+        mu = self.weights @ s  # |A|x1 action vector
+        err = a - mu  # |A|x1 action error vector
+        t2 = err @ s.T  # |A|x|S| action by state matrix
+        t1 = np.linalg.inv(self.noise_cov)  # |A|x|A| inverse covariance matrix
+        ret = t1 @ t2  # |A|x|S| gradient matrix
+        return ret.flatten()  # (|A|x|S|) gradient vector
+
+
+def compute_gradient(
+    pi,
+    state_dataset,
+    action_dataset,
+    feature_dataset,
+    done_dataset,
+    episode_length,
+    discount_f=0.9,
+):
+    """
+
+    Args:
+        pi (?): Policy object, provides the following methods;
+         - get_weights
+         - set_weights
+         - act
+         - set
+         - compute_gradients
+
+        disocunt_f (float): Discount factor for MDP
+
+
+    Returns:
+        (numpy array): Shape is num_episodes, policy_parameter_dimension, reward_parameter_dimension
+    """
+    steps = len(state_dataset)
+    feature_dim = len(feature_dataset[0])
+
+    # discounted reward features computation
+    gamma = discount_f ** np.arange(episode_length)
+    num_episodes = np.sum(done_dataset)
+    print("Episodes:", num_episodes)
+    discounted_phi = []
+    for episode in range(num_episodes):
+        base = episode * episode_length
+        phi = np.array(
+            feature_dataset[base : base + episode_length]
+        )  # Step x Feature dim
+        gamma_tiled = np.tile(gamma, (feature_dim, 1))  # Feature Dim x Steps
+        gamma_tiled = gamma_tiled.transpose()  # Steps x Feature Dim
+        episode_discounted_phi = phi * gamma_tiled  # Step x Feature Dim
+        discounted_phi.append(episode_discounted_phi)
+    discounted_phi = np.array(discounted_phi)  # Episode X Step X Feature dim
+    expected_discounted_phi = discounted_phi.sum(axis=0)  # Step X Feature Dim
+    expected_discounted_phi = expected_discounted_phi.sum(axis=0)  # Feature Dim x 1
+    expected_discounted_phi /= num_episodes  # Feature Dim x 1
+    print("Feature Expectation:", expected_discounted_phi)
+
+    # computing the gradients of the logarithm of the policy wrt policy parameters
+
+    step_gradients = []  # Step x Gradient Dim
+    for step in range(steps):
+        step_gradient = pi.compute_gradients(
+            state_dataset[step], action_dataset[step]
+        )  # Gradient Dim is (|S|x|A|) flat - the dimension of the policy parameter vector
+        step_gradients.append(step_gradient)
+
+    # Slice flat step gradient list into episode gradient chunks
+    gradients = []
+    for episode in range(num_episodes):
+        base = episode * episode_length
+        gradients.append(step_gradients[base : base + episode_length])
+    gradients = np.array(gradients)  # Episode x Step x Gradient Dim
+
+    # Measure gradient dimension
+    gradient_dim = gradients.shape[2]
+
+    # Repeat epsiode gradients over feature dimension
+    rep_gradients = np.tile(
+        gradients, (feature_dim, 1, 1, 1)
+    )  # Feature Dim x Episodes x Step x Gradients Dim
+
+    # Shuffle dimensions
+    rep_gradients = np.transpose(
+        rep_gradients, axes=[1, 2, 3, 0]
+    )  # Episodes x Steps x Gradient Dim x Feature Dim
+
+    # Cumulative sum over timesteps to get cumulative gradients
+    cum_gradients = rep_gradients.cumsum(
+        axis=1
+    )  # Episodes x Steps (Cumulative) x Gradient Dim x Feature Dim
+
+    # Repeat discounted feature counts over gradient dimensions
+    rep_discounted_phi = np.tile(
+        discounted_phi, (gradient_dim, 1, 1, 1)
+    )  # Gradient Dim x Episode x Step x Feature Dim
+    phi = np.transpose(
+        rep_discounted_phi, axes=[1, 2, 0, 3]
+    )  # Episode x Step x Gradient Dim x Feature Dim
+
+    # Combine cumulative gradients with feature counts
+    tmp = cum_gradients * phi  # Episode x Step x Gradient Dim x Feature Dim
+    # Sum over steps to get final gradient tensor
+    estimated_gradients = tmp.sum(axis=1)  # Episode x Gradient Dim x Feature Dim
+
+    # Esimtated gradients is of shape
+    # Epsiode x Gradient Dim x Feature Dim
+    return estimated_gradients
+
+
+def compute_gradient_1ep(
+    pi,
+    episode_states,
+    episode_actions,
+    episode_features,
+    discount_f=0.9,
+):
+    """
+
+    Args:
+        pi (?): Policy object, provides the following methods;
+         - get_weights
+         - set_weights
+         - act
+         - set
+         - compute_gradients
+
+        disocunt_f (float): Discount factor for MDP
+
+
+    Returns:
+        (numpy array): Shape is num_episodes, policy_parameter_dimension, reward_parameter_dimension
+    """
+    episode_length = steps = len(episode_states)
+    feature_dim = len(episode_features[0])
+
+    # discounted reward features computation
+    gamma = discount_f ** np.arange(episode_length)
+    phi = episode_features  # Step x Feature dim
+    gamma_tiled = np.tile(gamma, (feature_dim, 1))  # Feature Dim x Steps
+    gamma_tiled = gamma_tiled.transpose()  # Steps x Feature Dim
+    episode_discounted_phi = phi * gamma_tiled  # Step x Feature Dim
+    discounted_phi = np.array(episode_discounted_phi)  # Step X Feature dim
+    expected_discounted_phi = discounted_phi.sum(axis=0)  # Feature Dim x 1
+    expected_discounted_phi /= 1.0  # Feature Dim x 1
+    print("Feature Expectation:", expected_discounted_phi)
+
+    # computing the gradients of the logarithm of the policy wrt policy parameters
+
+    gradients = []  # Step x Gradient Dim
+    for step in range(steps):
+        step_gradient = pi.compute_gradients(
+            episode_states[step], episode_actions[step]
+        )  # Gradient Dim is the dimension of the policy parameter vector - (|S|x|A|) flat for Ramponi's LinearGaussianPolicy class
+        gradients.append(step_gradient)
+    gradients = np.array(gradients)  # Step x Gradient Dim
+
+    # Measure gradient dimension
+    gradient_dim = gradients.shape[1]
+
+    # Repeat gradients over feature dimension
+    rep_gradients = np.tile(
+        gradients, (feature_dim, 1, 1)
+    )  # Feature Dim x Step x Gradients Dim
+
+    # Shuffle dimensions
+    rep_gradients = np.transpose(
+        rep_gradients, axes=[1, 2, 0]
+    )  # Steps x Gradient Dim x Feature Dim
+
+    # Cumulative sum over timesteps to get cumulative gradients
+    cum_gradients = rep_gradients.cumsum(
+        axis=0
+    )  # Steps (Cumulative) x Gradient Dim x Feature Dim
+
+    # Repeat discounted feature counts over gradient dimensions
+    rep_discounted_phi = np.tile(
+        discounted_phi, (gradient_dim, 1, 1)
+    )  # Gradient Dim x Step x Feature Dim
+
+    # Shuffle dims
+    phi = np.transpose(
+        rep_discounted_phi, axes=[1, 0, 2]
+    )  # Step x Gradient Dim x Feature Dim
+
+    # Combine cumulative gradients with feature counts
+    tmp = cum_gradients * phi  # Step x Gradient Dim x Feature Dim
+
+    # Sum over steps to get final gradient tensor
+    estimated_gradients = tmp.sum(axis=0)  # Gradient Dim x Feature Dim
+
+    # Esimtated gradients is of shape
+    # Gradient Dim x Feature Dim
+    return estimated_gradients
+
+
 def main():
 
-    visualize = False
+    # |A| x |S| policy weight matrix
+    weights = np.array([[1.0, 1.0, 0.0, 1.0]])
+    noise = 1.0
+    pi = LinearGaussianPolicy(weights=weights, noise=noise)
 
-    # Construct continuous mountain car env
-    print("Building environment")
-    gamma = 0.99
-    env = gym.make("MountainCarContinuous-v0")
+    # State vector is indicator for which of 4 states we are in, with one dummy indicator
+    state_dataset = np.array(
+        [  # Steps
+            [1.0, 0.0, 0.0, 1.0],  # State dim
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],  # End of episode
+        ]
+    )
 
-    # Form a gaussian basis feature function with basis_dim x basis_dim gaussians distributed through state-space
-    basis_dim = 4
-    phi = GaussianBasis(num=basis_dim)
+    action_dataset = np.array(
+        [  # Steps
+            [1.0],  # Action dim
+            [1.0],
+            [1.0],
+            [0.0],  # End of episode
+        ]
+    )
+
+    # Reward feature vector is regular / terminal state / dummy feature x 3
+    feature_dataset = np.array(
+        [  # Steps
+            [1.0, 0.0, 1.0, 1.0, 1.0],  # Feature dimension
+            [1.0, 0.0, 1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0, 1.0, 1.0],  # End of episode
+        ],
+    )
+
+    # Gradient Dim x Feature Dim
+    grads_1ep = compute_gradient_1ep(
+        pi,
+        state_dataset,
+        action_dataset,
+        feature_dataset,
+        done_dataset,
+    )
+
+    assert False
+
+    # Construct env
+    from multimodal_irl.envs import ElementWorldEnv, element_world_extras
+
+    env = ElementWorldEnv()
+    xtr, phi, rewards = element_world_extras(env)
+    reward = rewards[0]
 
     # Collect dataset of demonstration (s, a) trajectories from expert
-    pi_expert = lambda s: torch.tensor([-1]) if s[1] < 0 else torch.tensor([+1])
-    num_episodes = 20
-    print(f"Collecting {num_episodes} expert demonstrations")
-    dataset = []
-    for episode in range(num_episodes):
-        path = []
-        done = False
-        s = env.reset()
-        while not done:
-            a = pi_expert(s).numpy()
-            path.append((s, a))
-            s_prime, r, done, info = env.step(a)
-            s = s_prime
-            if visualize:
-                if episode < 5:
-                    env.render()
-        path.append((s, None))
-        dataset.append(path)
-    env.close()
+    _, q_star = vi(xtr, phi, reward)
+    pi_star = OptimalPolicy(q_star, stochastic=True)
+    num_rollouts = 50
+    demos = pi_star.get_rollouts(env, num_rollouts)
 
-    # Construct a policy that is a linear function of the basis features
-    pi = MLPGaussianPolicy(len(phi))
+    # Construct BC policy
+    pi = MLPCategoricalPolicy(len(phi), len(xtr.actions), hidden_size=100)
 
     # Perform behaviour cloning to copy demo data with policy
-    print("Behaviour cloning linear policy on expert data")
-    pi = pi.behaviour_clone(dataset, phi, log_interval=100)
+    pi = pi.behaviour_clone(demos, phi, log_interval=100)
 
-    if visualize:
-        print("Previewing BC-trained linear policy")
-        with torch.no_grad():
-            for episode in range(5):
-                done = False
-                s = env.reset()
-                while not done:
-                    phi_s = phi(s)
-                    a = pi.sample_action(torch.tensor(phi_s)).detach().numpy()
-                    s, r, done, info = env.step(a)
-                    env.render()
-            env.close()
+    jac = form_jacobian(pi, phi, demos, xtr.gamma)
 
-    jac = form_jacobian(pi, phi, dataset, gamma)
+    # From the original repo
+    estimated_gradients, _ = compute_gradient(
+        policy_train,
+        X_dataset,
+        y_dataset,
+        r_dataset,
+        dones_dataset,
+        EPISODE_LENGTH,
+        GAMMA,
+        features_idx,
+        verbose=args.verbose,
+        use_baseline=args.baseline,
+        use_mask=args.mask,
+        scale_features=args.scale_features,
+        filter_gradients=args.filter_gradients,
+        normalize_f=normalize_f,
+    )
+    num_episodes, num_parameters, num_objectives = estimated_gradients.shape[:]
+    mean_gradients = np.mean(estimated_gradients, axis=0)
+    jac = mean_gradients
+
     d, q = jac.shape
-
-    # Form 'P' matrix
     p_mat = jac.T @ jac
 
     # Form loss function for sigam-girl
@@ -196,10 +465,8 @@ def main():
     # Perform many random restarts to find best local minima
     print("Searching for reward weights...")
     evaluations = []
-    i = 0
     num_random_initialisations = 100
-    verbose = False
-    while i < num_random_initialisations:
+    while len(evaluations) < num_random_initialisations - 1:
         # Choose random initial guess
         omega0 = np.random.uniform(0, 1, q)
         omega0 = omega0 / np.sum(omega0)
@@ -210,27 +477,16 @@ def main():
             method="SLSQP",
             constraints=constraint,
             bounds=bounds,
-            options={"ftol": 1e-8, "disp": verbose},
+            options={"ftol": 1e-8, "disp": False},
         )
         if res.success:
             # If the optimization was successful, save it
             evaluations.append([res, loss_fn(res.x)])
-            i += 1
     opt_results, losses = zip(*evaluations)
 
     best_solution = opt_results[np.argmin(losses)]
     print(best_solution)
-
-    learned_reward_parameter = best_solution.x
-
-    # Preview learned reward
-    import matplotlib.pyplot as plt
-
-    plt.figure()
-    plt.imshow(learned_reward_parameter.reshape(basis_dim, basis_dim))
-    plt.colorbar()
-    plt.grid()
-    plt.show()
+    reward_weights = best_solution.x
 
     print("Done")
 
