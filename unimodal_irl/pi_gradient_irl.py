@@ -1,145 +1,80 @@
+"""Implements Sigma-GIRL
+
+Ramponi, Giorgia, et al. "Truly Batch Model-Free Inverse Reinforcement Learning about Multiple Intentions." International Conference on Artificial Intelligence and Statistics. PMLR, 2020.
+
+Original implementation of PGIRL and Sigma-GIRL is at https://github.com/gioramponi/sigma-girl-MIIRL,
+which roughly transliterated is as follows
+
+    import cdd
+
+    import numpy as np
+    from qpsolvers import solve_qp
+    from scipy.linalg import null_space
+
+    # P-Girl implementation below
+    # Solve for jacobian null space
+    # jac_rank = np.linalg.matrix_rank(jac)
+    ns = null_space(jac)
+
+    # Do we have an effective null space?
+    if ns.shape[1] > 0:
+        # Do we have an all positive or all negative null space?
+        if (ns >= 0).all() or (ns <= 0).all():
+            weights = ns[:, 0] / np.sum(ns[:, 0])
+            P = np.dot(jac.T, jac)
+            loss = np.dot(np.dot(weights.T, P), weights)
+            print("Done")
+        else:
+            # Need to solve a linear program to find null space
+            A = np.array(ns)
+            b = np.zeros(A.shape[0]).reshape(-1, 1)
+            mat = cdd.Matrix(np.hstack([b, -A]), number_type="float")
+            mat.rep_type = cdd.RepType.INEQUALITY
+            V = np.array(cdd.Polyhedron(mat).get_generators())[:, 1:]
+            if V.shape[0] != 1 and (V != 0).any():
+                weights = V
+                weights = ns @ weights.T
+                weights /= np.sum(weights)
+                P = np.dot(jac.T, jac)
+                loss = np.dot(np.dot(weights.T, P), weights)
+                print("Done")
+    else:
+        # Need to solve a quadratic program to find null space
+        raise NotImplementedError
+
+    # If we still fail, we need to try solving a Quadratic Program...
+    P = np.dot(jac.T, jac)
+
+    reward_dim = len(phi)
+    q = np.zeros(reward_dim)
+    A = np.ones((reward_dim, reward_dim))
+    b = np.ones(reward_dim)
+    G = np.diag(np.diag(A))
+    h = np.zeros(reward_dim)
+    solver = "quadprog"
+
+    try:
+        weights = solve_qp(P, q, -G, h, A=A, b=b, solver=solver)
+    except ValueError:
+        try:
+            normalized_P = P / np.linalg.norm(P)
+            weights = solve_qp(normalized_P, q, -G, h, A=A, b=b, solver=solver)
+        except:
+            # If we've still failed to get a reward vector, NOW try Sigma-GIRL
+
+"""
+
 import gym
 import torch
 import numpy as np
 import scipy as sp
-import torch.nn as nn
 import itertools as it
-import torch.nn.functional as F
-import torch.optim as optim
+
 from torch.distributions import Categorical
 
-from scipy.stats import multivariate_normal
-from scipy.linalg import null_space
 
-from mdp_extras import FeatureFunction
-
-# Range of mountaincar state space
-mc_rpos = (-1.2, 0.6)
-mc_rvel = (-0.07, 0.07)
-
-
-class MCGaussianBasis(FeatureFunction):
-    """Feature function for MountainCar
-
-    A set of Gaussian functions spanning the state space
-    """
-
-    def __init__(self, num=5, pos_range=(-1.2, 0.6), vel_range=(-0.07, 0.07)):
-        """C-tor"""
-        super().__init__(self.Type.OBSERVATION)
-
-        self.dim = num ** 2
-        pos_delta = pos_range[1] - pos_range[0]
-        vel_delta = vel_range[1] - vel_range[0]
-
-        pos_mean_diff = pos_delta / (num + 1)
-        pos_basis_means = (
-            np.linspace(pos_mean_diff * 0.5, pos_delta - pos_mean_diff * 0.5, num)
-            + pos_range[0]
-        )
-        pos_basis_std = pos_mean_diff ** 2 / 10
-
-        vel_mean_diff = vel_delta / (num + 1)
-        vel_basis_means = (
-            np.linspace(vel_mean_diff * 0.5, vel_delta - vel_mean_diff * 0.5, num)
-            + vel_range[0]
-        )
-        vel_basis_std = vel_mean_diff ** 2 / 10
-
-        covariance = np.diag([pos_basis_std, vel_basis_std])
-        means = np.array(list(it.product(pos_basis_means, vel_basis_means)))
-
-        self.rvs = [multivariate_normal(m, covariance) for m in means]
-
-    def __len__(self):
-        """Get the length of the feature vector"""
-        return self.dim
-
-    def __call__(self, o1, a=None, o2=None):
-        """Get feature vector given state(s) and/or action"""
-        return np.array([rv.pdf(o1) for rv in self.rvs])
-
-
-class MLPGaussianPolicy(nn.Module):
-    """An MLP-Gaussian policy"""
-
-    def __init__(self, f_dim, hidden_size=20, std=0.2, lr=0.02):
-        """C-tor
-
-        Args:
-            f_dim (int): Dimension of input feature vector
-
-            hidden_size (int): Number of hidden units
-            std (float): Fixed standard deviation of gaussian policy
-            lr (float): Learning rate for Adam optimizer
-        """
-        super().__init__()
-        self.lr = lr
-
-        self.fc1 = nn.Linear(f_dim, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, 1)
-        self.std = std
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
-
-    def forward(self, x):
-        # Input is state feature vector phi(s, a)
-        x = x.float()
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        # Output is mean of a gaussian from which we sample an action
-        return x
-
-    def sample_action(self, x):
-        mean = self(x)
-        dist = torch.distributions.normal.Normal(mean, self.std)
-        return dist.sample()
-
-    def log_prob(self, a, x):
-        """Find log probability of an action, given the feature vector x = phi(s)"""
-        mean = self(x)
-        dist = torch.distributions.normal.Normal(mean, self.std)
-        return dist.log_prob(a)
-
-    def param_gradient(self):
-        """Get the gradient of every parameter in a single vector"""
-        vec = []
-        for param in self.parameters():
-            vec.append(param.grad.view(-1))
-        return torch.cat(vec)
-
-    def behaviour_clone(self, dataset, phi, num_epochs=3000, log_interval=None):
-        """Behaviour cloning using full-batch gradient descent
-
-        Args:
-            dataset (list): List of (s, a) rollouts to clone from
-            phi (FeatureFunction): Feature function accepting states and outputting feature vectors
-
-            num_epochs (int): Number of epochs to train for
-            log_interval (int): Logging interval, set to 0 to do no logging
-        """
-        # Convert states to features, and flatten dataset
-        phis = []
-        actions = []
-        for path in dataset:
-            _states, _actions = zip(*path[:-1])
-            phis.extend([phi(s) for s in _states])
-            actions.extend(_actions)
-        phis = torch.tensor(phis)
-        actions = torch.tensor(actions)
-
-        for epoch in range(num_epochs):
-            # Run one epoch of training
-            self.optimizer.zero_grad()
-            # loss = self.loss_fn(self(phis), actions)
-            loss = torch.mean(torch.norm(self(phis) - actions, dim=0) ** 2)
-            loss.backward()
-            self.optimizer.step()
-
-            if log_interval is not None and epoch % log_interval == 0:
-                print(f"Epoch {epoch}, loss={loss.item()}")
-
-        return self
+from mdp_extras import FeatureFunction, MLPGaussianPolicy
+from mdp_extras.envs.mountain_car import GaussianBasis
 
 
 def form_jacobian(policy, phi, demos, gamma=1.0):
@@ -163,7 +98,6 @@ def form_jacobian(policy, phi, demos, gamma=1.0):
     jac = []
     policy.zero_grad()
     for reward_dim in range(len(phi)):
-        print(f"{reward_dim}/{len(phi)}")
         f = torch.zeros(1)
         for demo in demos:
             phi_tau = phi.onpath(demo, gamma=gamma)
@@ -173,9 +107,13 @@ def form_jacobian(policy, phi, demos, gamma=1.0):
             for t, (s, a) in enumerate(demo[:-1]):
                 phi_s = torch.tensor(phi(s))
                 if grad_accum is None:
-                    grad_accum = policy.log_prob(torch.tensor(a), phi_s)
+                    grad_accum = policy.log_prob_for_state_action(
+                        phi_s, torch.tensor(a)
+                    )
                 else:
-                    grad_accum += policy.log_prob(torch.tensor(a), phi_s)
+                    grad_accum += policy.log_prob_for_state_action(
+                        phi_s, torch.tensor(a)
+                    )
             f += weight * grad_accum
         f.backward()
         jac.append(policy.param_gradient().numpy())
@@ -199,7 +137,7 @@ def main():
 
     # Form a gaussian basis feature function with basis_dim x basis_dim gaussians distributed through state-space
     basis_dim = 4
-    phi = MCGaussianBasis(num=basis_dim)
+    phi = GaussianBasis(num=basis_dim)
 
     # Collect dataset of demonstration (s, a) trajectories from expert
     pi_expert = lambda s: torch.tensor([-1]) if s[1] < 0 else torch.tensor([+1])
@@ -293,74 +231,6 @@ def main():
     plt.colorbar()
     plt.grid()
     plt.show()
-
-    # P-Girl implementation below
-    # # # Solve for jacobian null space
-    # # # jac_rank = np.linalg.matrix_rank(jac)
-    # # ns = null_space(jac)
-    # #
-    # # # Do we have an effective null space?
-    # # if ns.shape[1] > 0:
-    # #     # Do we have an all positive or all negative null space?
-    # #     if (ns >= 0).all() or (ns <= 0).all():
-    # #         weights = ns[:, 0] / np.sum(ns[:, 0])
-    # #         P = np.dot(jac.T, jac)
-    # #         loss = np.dot(np.dot(weights.T, P), weights)
-    # #         print("Done")
-    # #     else:
-    # #         pass
-    # #         # Need to solve a linear program to find null space
-    # #         # The following is from the sigma-girl paper repo
-    # #         # import cdd
-    # #         # A = np.array(ns)
-    # #         # b = np.zeros(A.shape[0]).reshape(-1, 1)
-    # #         # mat = cdd.Matrix(np.hstack([b, -A]), number_type="float")
-    # #         # mat.rep_type = cdd.RepType.INEQUALITY
-    # #         # V = np.array(cdd.Polyhedron(mat).get_generators())[:, 1:]
-    # #         # if V.shape[0] != 1 and (V != 0).any():
-    # #         #     weights = V
-    # #         #     weights = ns @ weights.T
-    # #         #     weights /= np.sum(weights)
-    # #         #     P = np.dot(jac.T, jac)
-    # #         #     loss = np.dot(np.dot(weights.T, P), weights)
-    # #         #     print("Done")
-    # #
-    # # else:
-    # #     # Need to solve a quadratic program to find null space
-    # #     raise NotImplementedError
-    #
-    # # If it still fails, we run Sigma-GIRL
-    # P = np.dot(jac.T, jac)
-    #
-    # # num_objectives == Number of reward parameter dimensions ('q' in the paper)
-    # # num_objectives = len(phi)
-    # # q = np.zeros(num_objectives)
-    # # A = np.ones((num_objectives, num_objectives))
-    # # b = np.ones(num_objectives)
-    # # G = np.diag(np.diag(A))
-    # # h = np.zeros(num_objectives)
-    # # normalized_P = P / np.linalg.norm(P)
-    # # solver = "quadprog"
-    # # from qpsolvers import solve_qp
-    # #
-    # # try:
-    # #     weights = solve_qp(P, q, -G, h, A=A, b=b, solver=solver)
-    # # except ValueError:
-    # #     try:
-    # #         weights = solve_qp(normalized_P, q, -G, h, A=A, b=b, solver=solver)
-    # #     except:
-    # #         # normalize matrix
-    # #
-    # #         print("Error in Girl")
-    # #         # print(P)
-    # #         # print(normalized_P)
-    # #         # u, s, v = np.linalg.svd(P)
-    # #         # print("Singular Values:", s)
-    # #         # ns = scipy.linalg.null_space(mean_gradients)
-    # #         # print("Null space:", ns)
-    # #
-    # #         seed = 1234
-    # #         weights, loss = solve_girl_approx(P, seed=seed)
 
     print("Done")
 
