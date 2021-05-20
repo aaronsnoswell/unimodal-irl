@@ -89,8 +89,8 @@ def form_jacobian(
     this function.
 
     Args:
-        pi (class): Policy object, providing a method compute_gradients(s, a) that returns the log gradient of the
-            policy for action a given state s
+        pi (class): Policy object, providing a method log_prob_for_state_action(s, a) and another
+            method param_gradient()
         states (numpy array): State vector at each timestep
         actions (numpy array): Action vector at each timestep
         features (numpy array): reward feature vector at each timestep
@@ -178,6 +178,7 @@ def form_jacobian(
         # Gradient Dim x Feature Dim
         average_jac.append(estimated_gradients)
 
+    # Average over trajectories
     average_jac = np.mean(average_jac, axis=0)
     return average_jac
 
