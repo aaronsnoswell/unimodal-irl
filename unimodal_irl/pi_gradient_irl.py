@@ -348,38 +348,6 @@ def gradient_path_logprobs(opt_jac_mean, jac_cov, rollout_jacobians):
     return traj_lls
 
 
-def jac_cov_cond(all_jacs, mode="lw"):
-    """Compute a well-conditioned jacobian covariance estimate
-
-    Args:
-        all_jacs (list): List of dxq jacobian estiamtes, one for each trajectory, where d is the policy
-            parameter size and q is the reward parameter size
-
-        mode (str): Estimator to use, options are
-            'lw': Ledoit-Wolf shrinkage estimator
-            'oas': Oracle-approximating shrinkage
-
-    Returns:
-        (numpy array): (pq)x(pq) Esimated Jacobian covariance matrix that is well conditioned
-    """
-
-    assert mode in ("lw", "oas")
-
-    # Flatten jacobian matrices to vectors
-    X = np.array([jac.flatten() for jac in all_jacs])
-
-    if mode == "lw":
-        # Apply Ledoit-Wolf shrinkage conditioner to get well-conditioned covariance estimate
-        lw_jac_cov, _ = ledoit_wolf(X)
-        return lw_jac_cov
-    elif mode == "oas":
-        # Apply Oracle Approximating Shrinkage estimator
-        oas_jac_cov, _ = oas(X)
-        return oas_jac_cov
-    else:
-        raise ValueError
-
-
 def main():
     """Demonstrate Sigma-GIRL on ElementWorld"""
 
