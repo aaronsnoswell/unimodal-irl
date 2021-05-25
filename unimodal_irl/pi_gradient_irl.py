@@ -314,52 +314,37 @@ def gradient_log_likelihood(xtr, phi, reward, rollouts, weights=None):
     )
 
 
-def gradient_path_logprobs(
-    policy,
-    phi,
-    jac_mean,
-    jac_cov,
-    opt_jac_mean,
-    rollouts,
-    gamma=0.99,  # jac_cov_det_eig_min=1e-12
-):
-    """Efficiently compute the (approximate) log probability of a set of paths under the Sigma-GIRL model
+def gradient_path_logprobs(opt_jac_mean, jac_cov, rollout_jacobians):
+    """Efficiently compute the log probability of a set of paths under the Sigma-GIRL model
 
     This is given by the log of Eq. 4 in Truly Batch Model Free IRL about MI, however the empirical
     mean jacobian is computed for each trajectory individually, therefore n=1.
 
-    N.b. this function requires that the jacobian covariance is well-conditioned.
-
     Args:
-        rollouts (list): List of rollouts, each a list of (s, a) tuples
+        opt_jac_mean (numpy array): dxq Optimal Jacobian mean matrix, e.g. computed using optimal_jacobian_mean()
+        jac_cov (numpy array): (dq)x(dq) Jacobian empirical covariance matrix - n.b. this should not
+            have any pre-conditioning applied to it
+        rollout_jacobians (list): List of dxq jacobians, one for each demonstration trajectory. E.g.
+            these terms can be computed by traj_jacobian()
 
     Returns:
         (list): List of log-probabilities under a Sigma-GIRL model, ignoring the covariance determinant
             term, which is very hard to estimate accuractely
     """
 
-    d, q = jac_mean.shape
+    # N.b. it is very important that this is the plain empirical covariance, and that we allow singular
+    # covariance matricies - Scipy internally does Symmetric Positive Semiedefinite decomposition to
+    # condition the distribution appropriately if jac_cov is singular
+    jac_dist = sp.stats.multivariate_normal(
+        mean=opt_jac_mean.flatten(), cov=jac_cov, allow_singular=True
+    )
 
-    # Covariance is often singular when dq >> n, so we use pseudo-inverse and determinant
-    jac_cov_pinv = np.linalg.pinv(jac_cov)
-
-    # Compute pseudo-determinant
-    # eigs = np.linalg.eigvals(jac_cov)
-    # nonzero_eigs = eigs[np.abs(eigs) > jac_cov_det_eig_min]
-    # jac_cov_pdet = np.product(nonzero_eigs)
-
-    traj_lls = []
-    for demo in rollouts:
-        traj_jac = traj_jacobian(policy, phi, demo, gamma=gamma)
-        v1 = (traj_jac - opt_jac_mean).flatten()
-        traj_ll = -0.5 * (
-            v1.T @ jac_cov_pinv @ v1
-            + d * q * np.log(2 * np.pi)
-            # + np.log(jac_cov_pdet)
-        )
-        traj_lls.append(traj_ll)
-    traj_lls = np.array(traj_lls)
-
+    traj_lls = np.array(
+        [
+            jac_dist.logpdf(rollout_jacobian.flatten())
+            for rollout_jacobian in rollout_jacobians
+        ]
+    )
     return traj_lls
 
 
@@ -406,15 +391,15 @@ def main():
     reward = rewards[0]
 
     # Collect dataset of demonstration (s, a) trajectories from expert
+    print("Collecting data")
     _, q_star = vi(xtr, phi, reward)
     pi_star = OptimalPolicy(q_star, stochastic=True)
     num_rollouts = 200
     demos = pi_star.get_rollouts(env, num_rollouts)
 
-    # Construct BC policy
+    # Construct Behaviour Cloned policy
+    print("Behaviour cloning...")
     pi = MLPCategoricalPolicy(len(phi), len(xtr.actions), hidden_size=30)
-
-    # Perform behaviour cloning to copy demo data with policy
     pi = pi.behaviour_clone(demos, phi, num_epochs=500, log_interval=50)
 
     # Recover policy gradient jacobian from BC policy
@@ -422,7 +407,7 @@ def main():
     d, q = jac_mean.shape
 
     # Perform many random restarts to find best local minima
-    print("Searching for reward weights...")
+    print("Solving for reward weights...")
     evaluations = []
     num_random_initialisations = 100
     while len(evaluations) < num_random_initialisations - 1:
@@ -444,19 +429,18 @@ def main():
             evaluations.append([res.x, res.fun])
     params, losses = zip(*evaluations)
     reward_weights = params[np.argmin(losses)]
+    print(reward_weights)
 
-    if np.linalg.det(jac_cov) == 0.0:
-        # Do we need to condition the jacobian covariance estimate?
-        jac_cov = jac_cov_cond(all_jacs)
+    # if np.linalg.det(jac_cov) == 0.0:
+    #     # Do we need to condition the jacobian covariance estimate?
+    #     jac_cov = jac_cov_cond(all_jacs)
 
     # Compute optimal jacobian mean
     opt_jac_mean = optimal_jacobian_mean(jac_mean, jac_cov, reward_weights)
 
     # Compute log-likelihood of each demo under the learned reward
-    # Add a very unlikely demo to sanity check the log-likelihoods
-    traj_lls = gradient_path_logprobs(
-        pi, phi, jac_mean, jac_cov, opt_jac_mean, demos, xtr.gamma
-    )
+    rollout_jacobians = np.array([traj_jacobian(pi, phi, d, xtr.gamma) for d in demos])
+    traj_lls = gradient_path_logprobs(opt_jac_mean, jac_cov, rollout_jacobians)
 
     print("Done")
 
