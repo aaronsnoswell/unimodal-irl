@@ -480,6 +480,8 @@ def maxent_log_likelihood(xtr, phi, reward, rollouts, weights=None):
         reward (mdp_extras.RewardFunction): Reward function
         rollouts (list): List of rollouts, each a list of (s, a) tuples
 
+        weights (numpy array): Optional vector of path weights for weighted IRL problems
+
     Returns:
         (float): Average log-likelihood of the paths in rollouts under the given reward
     """
