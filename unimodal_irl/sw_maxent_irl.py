@@ -892,6 +892,48 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
 
 def main():
     """Main function"""
+
+    import gym
+    import random
+    import itertools as it
+
+    from mdp_extras import vi, OptimalPolicy, Indicator
+    from mdp_extras.envs import nchain_extras
+
+    n = 2
+    env = gym.make("NChain-v0", n=n)
+    xtr, phi, reward_gt = nchain_extras(env, gamma=1.0)
+
+    # Change to a uniform MDP
+    xtr._t_mat = np.ones_like(xtr.t_mat) / len(xtr.states)
+    xtr._p0s = np.ones(len(xtr.states)) / len(xtr.states)
+    reward_gt.theta = np.zeros_like(reward_gt.theta)
+
+    # Change phi to state-based indicator
+    phi = Indicator(Indicator.Type.OBSERVATION, xtr)
+
+    # Solve the MDP
+    max_path_length = n
+    # num_demos = 10000
+    # demo_star = []
+    # for _ in range(num_demos):
+    #     demo = []
+    #     # Start state
+    #     s = random.choice(xtr.states)
+    #     for t in it.count():
+    #         a = random.choice(xtr.actions)
+    #         demo.append((s, a))
+    #         s = random.choice(xtr.states)
+    #         if t == max_path_length - 2:
+    #             break
+    #     demo.append((s, None))
+    #     demo_star.append(demo)
+    # phi_bar_star = phi.demo_average(demo_star)
+    phi_bar_star = np.ones(len(phi)) / len(phi)
+
+    x = np.zeros(len(phi))
+    nll = sw_maxent_irl(x, xtr, phi, phi_bar_star, max_path_length, nll_only=True)
+
     pass
 
 
