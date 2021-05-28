@@ -191,35 +191,51 @@ def form_jacobian(policy, phi, rollouts, gamma=0.9, weights=None):
         weights (numpy array): Optional path weights for weighted IRL problems
 
     Returns:
-        all_jacs (list): List of dxq individual jacobians for each demonstration trajectory
         (numpy array): dxq empirical jacobian mean matrix, where d is the policy parameter dimension and q is the
             reward parameter dimension.
         (numpy array): (dq)x(dq) empirical jacobian covariacne matrix, where d is the policy parameter dimension
             and q is the reward parameter dimension.
         (numpy array): qxq 'P' matrix, q is the reward parameter dimension. Equals jac^T @ jac
     """
-    trajectory_jacobians = np.array(
-        [traj_jacobian(policy, phi, traj, gamma) for traj in rollouts]
-    )  # Num demonstrations x Gradient Dim x Feature Dim
 
     # Trajectory weightings
     if weights is None:
         weights = np.ones(len(rollouts)) / len(rollouts)
 
-    # Find (weighted) mean matrix
-    jac_mean = np.average(trajectory_jacobians, axis=0, weights=weights)
+    p = len(policy.param_gradient())
+    q = len(phi)
 
-    # Find (weighted) covariance matrix
-    trajectory_differences = trajectory_jacobians - jac_mean
-    trajectory_covariances = [
-        np.outer(diff.flat, diff.flat) for diff in trajectory_differences
-    ]
-    jac_cov = np.average(trajectory_covariances, axis=0, weights=weights)
+    jac_sum = np.zeros((p * q,))
+    jac_sum_outer = np.zeros((p * q, p * q))
+
+    # Incrementally compute jacobian weighted mean and variance to save lots of memory
+    for weight, traj in zip(weights, rollouts):
+        traj_jac = traj_jacobian(policy, phi, traj, gamma).flatten()
+        jac_sum += weight * traj_jac
+        jac_sum_outer += weight * np.outer(traj_jac, traj_jac)
+
+    jac_mean = (jac_sum / sum(weights))
+    jac_cov = (jac_sum_outer / sum(weights)) - (np.outer(jac_mean, jac_mean))
+    jac_mean = jac_mean.reshape((p, q))
+
+    # trajectory_jacobians = np.array(
+    #     [traj_jacobian(policy, phi, traj, gamma) for traj in rollouts]
+    # )  # Num demonstrations x Gradient Dim x Feature Dim
+    #
+    # # Find (weighted) mean matrix
+    # jac_mean = np.average(trajectory_jacobians, axis=0, weights=weights)
+    #
+    # # Find (weighted) covariance matrix
+    # trajectory_differences = trajectory_jacobians - jac_mean
+    # trajectory_covariances = [
+    #     np.outer(diff.flat, diff.flat) for diff in trajectory_differences
+    # ]
+    # jac_cov = np.average(trajectory_covariances, axis=0, weights=weights)
 
     # Compute 'P' matrix
     p_mat = jac_mean.T @ jac_mean
 
-    return trajectory_jacobians, jac_mean, jac_cov, p_mat
+    return jac_mean, jac_cov, p_mat
 
 
 def pi_gradient_irl(x, p_mat):
@@ -387,7 +403,7 @@ def main():
     )
 
     # Recover policy gradient jacobian from BC policy
-    all_jacs, jac_mean, jac_cov, p_mat = form_jacobian(pi, phi, demos)
+    jac_mean, jac_cov, p_mat = form_jacobian(pi, phi, demos)
     d, q = jac_mean.shape
 
     # Perform many random restarts to find best local minima
