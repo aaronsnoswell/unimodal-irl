@@ -87,8 +87,7 @@ def traj_jacobian(policy, phi, traj, gamma=0.9):
         https://github.com/toshas/torch-discounted-cumsum to vastly speed up large portions of this function.
 
     Args:
-        policy (class): Pre-trained policy object, providing a method log_prob_for_state_action(s, a)
-            and another method param_gradient(). In practice, this policy is trained with behaviour cloning
+        policy (mdp_extras.TorchPolicy): Pre-trained policy object. In practice, this is trained with behaviour cloning
             to replicate the demonstration data.
         phi (callable): mdp_extras.FeatureFunction for this MDP
         traj (list): A demonstration trajectory, a list of (s, a) tuples
@@ -183,8 +182,7 @@ def form_jacobian(policy, phi, rollouts, gamma=0.9, weights=None):
     """Find Sigma-GIRL Empirical Mean and Covariance Jacobian matrices for dataset of demonstration trajectories
 
     Args:
-        policy (class): Pre-trained policy object, providing a method log_prob_for_state_action(s, a)
-            and another method param_gradient(). In practice, this policy is trained with behaviour cloning
+        policy (mdp_extras.TorchPolicy): Pre-trained policy object, In practice, this is trained with behaviour cloning
             to replicate the demonstration data.
         phi (callable): mdp_extras.FeatureFunction for this MDP
         rollouts (list): List of demonstration trajectories, each a list of (s, a) tuples
@@ -374,8 +372,9 @@ def main():
 
     # Construct Behaviour Cloned policy
     print("Behaviour cloning...")
-    pi = MLPCategoricalPolicy(len(phi), len(xtr.actions), hidden_size=30)
-    pi = pi.behaviour_clone(demos, phi, num_epochs=500, log_interval=50)
+    pi = MLPCategoricalPolicy(
+        len(phi), len(xtr.actions), hidden_size=30
+    ).behaviour_clone(demos, phi, num_epochs=500, log_interval=50)
 
     print("Policy 1")
     print(
