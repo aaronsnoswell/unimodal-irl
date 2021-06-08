@@ -106,6 +106,24 @@ def mean_ci(values, confidence_level=0.95):
     return mean - ci, mean, mean + ci
 
 
+def mean_ci_agg(values, *args):
+    """Aggregator for use with Pandas groupby() function
+
+    Args:
+        values (pandas DataFrame): DataFrame with floating point values to apply aggregator to
+
+        *args: Optional args to pass to mean_ci function
+
+    Returns:
+        (pandas DataFrame): DataFrame containing strings of the form "Mean ± CI"
+    """
+    if np.any(values.isna().to_numpy()):
+        return "N/A"
+    low, med, high = mean_ci(values, *args)
+    interval = high - low
+    return "{:03.2f} $\pm$ {:05.2f}".format(med, interval)
+
+
 def median_ci(values, confidence_level=0.95):
     """Compute median and approximate confidence interval for a list of values
 
@@ -134,3 +152,20 @@ def median_ci(values, confidence_level=0.95):
     values_sorted = sorted(values)
 
     return values_sorted[low_ci_rank], median, values_sorted[high_ci_rank]
+
+
+def median_ci_agg(values, *args):
+    """Aggregator for use with Pandas groupby() function
+
+    Args:
+        values (pandas DataFrame): DataFrame with floating point values to apply aggregator to
+
+        *args: Optional args to pass to median_ci function
+
+    Returns:
+        (pandas DataFrame): DataFrame containing strings of the form "Median [Low - High]"
+    """
+    if np.any(values.isna().to_numpy()):
+        return "N/A"
+    low, med, high = median_ci(values, *args)
+    return "{:.2f} [{:.2f} - {:.2f}]".format(low, med, high)
