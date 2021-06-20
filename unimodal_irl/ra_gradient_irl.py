@@ -214,7 +214,7 @@ def form_jacobian(policy, phi, rollouts, gamma=0.9, weights=None):
         jac_sum += weight * traj_jac
         jac_sum_outer += weight * np.outer(traj_jac, traj_jac)
 
-    jac_mean = (jac_sum / sum(weights))
+    jac_mean = jac_sum / sum(weights)
     jac_cov = (jac_sum_outer / sum(weights)) - (np.outer(jac_mean, jac_mean))
     jac_mean = jac_mean.reshape((p, q))
 
@@ -379,77 +379,83 @@ def main():
     phi = MirrorWrap(_phi)
     reward = phi.update_reward(_reward)
 
-    # Collect dataset of demonstration (s, a) trajectories from expert
-    print("Collecting data")
-    _, q_star = vi(xtr, phi, reward)
-    pi_star = OptimalPolicy(q_star, stochastic=True)
-    num_rollouts = 20
-    demos = pi_star.get_rollouts(env, num_rollouts)
-
-    # Construct Behaviour Cloned policy
-    print("Behaviour cloning...")
-    pi = MLPCategoricalPolicy(
-        len(phi), len(xtr.actions), hidden_size=30
-    ).behaviour_clone(demos, phi, num_epochs=500, log_interval=50)
-
-    print("Policy 1")
-    print(
-        np.array(
-            [
-                env.ACTION_SYMBOLS_A2SYM[int(pi.predict((phi(s)), stoch=False)[0])]
-                for s in xtr.states
-            ]
-        ).reshape(-1, 6)
-    )
-
-    # Recover policy gradient jacobian from BC policy
-    jac_mean, jac_cov, p_mat = form_jacobian(pi, phi, demos)
-    d, q = jac_mean.shape
-
-    # Perform many random restarts to find best local minima
-    print("Solving for reward weights...")
-    evaluations = []
-    num_random_initialisations = 1000
-    while len(evaluations) < num_random_initialisations - 1:
-        # Choose random initial guess
-        x0 = np.random.uniform(0, 1, q)
-        x0 = x0 / np.sum(x0)
-
-        res = sp.optimize.minimize(
-            pi_gradient_irl,
-            x0,
-            method="SLSQP",
-            constraints={"type": "eq", "fun": lambda w: np.sum(w) - 1},
-            bounds=[(0, 1)] * len(x0),
-            args=(p_mat),
-            options={"ftol": 1e-8, "disp": False},
-        )
-        if res.success:
-            # If the optimization was successful, save it
-            evaluations.append([res.x, res.fun])
-    params, losses = zip(*evaluations)
-    reward_weights = params[np.argmin(losses)]
-
-    # Un-mirror learned reward weights
-    learned_reward = phi.unupdate_reward(Linear(reward_weights))
-
-    # Compute optimal jacobian mean
-    opt_jac_mean = optimal_jacobian_mean(jac_mean, jac_cov, reward_weights)
-
-    # Compute log-likelihood of each demo under the learned reward
-    rollout_jacobians = np.array([traj_jacobian(pi, phi, d, xtr.gamma) for d in demos])
-    traj_lls = gradient_path_logprobs(opt_jac_mean, jac_cov, rollout_jacobians)
-
-    print("GT Reward")
-    print(_reward.theta)
-
-    print("Learned reward")
-    print(learned_reward.theta)
+    # # Collect dataset of demonstration (s, a) trajectories from expert
+    # print("Collecting data")
+    # _, q_star = vi(xtr, phi, reward)
+    # pi_star = OptimalPolicy(q_star, stochastic=True)
+    # num_rollouts = 20
+    # demos = pi_star.get_rollouts(env, num_rollouts)
+    #
+    # # Construct Behaviour Cloned policy
+    # print("Behaviour cloning...")
+    # pi = MLPCategoricalPolicy(len(phi), len(xtr.actions), hidden_size=30)
+    # bc_Loss = pi.behaviour_clone(demos, phi, num_epochs=500, log_interval=50)
+    #
+    # # print("Policy 1")
+    # # print(
+    # #     np.array(
+    # #         [
+    # #             env.ACTION_SYMBOLS_A2SYM[int(pi.predict((phi(s)), stoch=False)[0])]
+    # #             for s in xtr.states
+    # #         ]
+    # #     ).reshape(-1, 6)
+    # # )
+    #
+    # # Recover policy gradient jacobian from BC policy
+    # jac_mean, jac_cov, p_mat = form_jacobian(pi, phi, demos)
+    # d, q = jac_mean.shape
+    #
+    # # Perform many random restarts to find best local minima
+    # print("Solving for reward weights...")
+    # evaluations = []
+    # num_random_initialisations = 1000
+    # while len(evaluations) < num_random_initialisations - 1:
+    #     # Choose random initial guess
+    #     x0 = np.random.uniform(0, 1, q)
+    #     x0 = x0 / np.sum(x0)
+    #
+    #     res = sp.optimize.minimize(
+    #         pi_gradient_irl,
+    #         x0,
+    #         method="SLSQP",
+    #         constraints={"type": "eq", "fun": lambda w: np.sum(w) - 1},
+    #         bounds=[(0, 1)] * len(x0),
+    #         args=(p_mat),
+    #         options={"ftol": 1e-8, "disp": False},
+    #     )
+    #     if res.success:
+    #         # If the optimization was successful, save it
+    #         evaluations.append([res.x, res.fun])
+    # params, losses = zip(*evaluations)
+    # reward_weights = params[np.argmin(losses)]
+    #
+    # # Un-mirror learned reward weights
+    # learned_reward = phi.unupdate_reward(Linear(reward_weights))
+    #
+    # # Compute optimal jacobian mean
+    # opt_jac_mean = optimal_jacobian_mean(jac_mean, jac_cov, reward_weights)
+    #
+    # # Compute log-likelihood of each demo under the learned reward
+    # rollout_jacobians = np.array([traj_jacobian(pi, phi, d, xtr.gamma) for d in demos])
+    # traj_lls = gradient_path_logprobs(opt_jac_mean, jac_cov, rollout_jacobians)
+    #
+    # print("GT Reward")
+    # print(_reward.theta)
+    #
+    # print("Learned reward")
+    # print(learned_reward.theta)
 
     from unimodal_irl.metrics import ile_evd
 
-    _, evd = ile_evd(xtr, _phi, _reward, learned_reward)
+    learned_reward = Linear(_reward.theta * -1.0)
+    _, evd = ile_ecvd(xtr, _phi, _reward, learned_reward)
     print("EVD", evd)
+
+    for param, loss in evaluations:
+        possible_reward = phi.unupdate_reward(Linear(param))
+        print(
+            possible_reward.theta, loss, ile_evd(xtr, _phi, _reward, possible_reward)[1]
+        )
 
     print("Done")
 
