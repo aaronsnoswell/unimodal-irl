@@ -96,28 +96,45 @@ from mdp_extras import log_sum_exp
 #     return nll, nll_grad
 
 
-def sw_modelfree_maxent_irl(
-    x, phi, gamma, pi_ref, get_ref_demos, max_path_length, min_path_length=1
+def sw_maxent_irl_modelfree(
+    x, xtr, phi, phi_bar, max_path_length, pi_ref, pi_ref_demos, nll_only=False
 ):
-    """Estimate MaxEnt IRL log partition function value with importance sampling"""
+    """Compute MaxEnt IRL negative log likelihood with importance sampling
 
-    pi_ref_demos = get_ref_demos()
-    N = len(pi_ref_demos)
+    Args:
 
-    num_path_lengths = max_path_length - min_path_length + 1
+    Returns:
+        (float): Un-based negative log likelihood estimate for reward parameter x
+    """
 
-    # Compute the 'x' values that need log-sum-exp-ing
-    path_log_likelihoods = np.array(
+    M = len(pi_ref_demos)
+    z = max_path_length
+
+    # Compute NLL
+    fis = np.array(
         [
-            x @ phi.onpath(d, gamma)
-            + np.log(num_path_lengths)
-            - pi_ref.path_log_action_probability(d)
-            for d in pi_ref_demos
+            np.log(z)
+            + x @ phi.onpath(pi_ref_demo, xtr.gamma)
+            - pi_ref.path_log_action_probability(pi_ref_demo)
+            for pi_ref_demo in pi_ref_demos
         ]
     )
-    log_Z_theta = log_sum_exp(path_log_likelihoods) - np.log(N)
+    log_Z_theta = log_sum_exp(fis) - np.log(M)
+    nll = log_Z_theta - x @ phi_bar
 
-    return log_Z_theta
+    if nll_only:
+        return nll
+
+    # Also compute NLL gradient estimate
+    F = log_sum_exp(fis)
+    pis = np.exp(fis - F)
+    grad_log_Z_theta = np.sum(
+        [pi * phi.onpath(pi_ref_demo) for pi, pi_ref_demo in zip(pis, pi_ref_demos)],
+        axis=0,
+    )
+    nll_grad = grad_log_Z_theta - phi_bar
+
+    return nll, nll_grad
 
 
 def main():
@@ -146,17 +163,15 @@ def main():
 
     from unimodal_irl import sw_maxent_irl, sw_modelfree_maxent_irl, mean_ci, ile_evd
 
-    # n = 5
-    # env = gym.make("NChain-v0", n=n)
-    # xtr, phi, reward_gt = nchain_extras(env, gamma=0.9)
-    env = gym.make("FrozenLake-v0")
-    xtr, phi, reward_gt = frozen_lake_extras(env, gamma=0.9)
+    n = 5
+    env = gym.make("NChain-v0", n=n)
+    xtr, phi, reward_gt = nchain_extras(env, gamma=0.9)
 
     _, q_star = vi(xtr, phi, reward_gt)
     pi_star = OptimalPolicy(q_star)
     max_path_length = 10
 
-    num_paths = 400
+    num_paths = 40
     demo_star = pi_star.get_rollouts(env, num_paths, max_path_length=max_path_length)
     phi_bar = phi.demo_average(demo_star, xtr.gamma)
 
@@ -166,98 +181,46 @@ def main():
         gt_nll, gt_grad = sw_maxent_irl(
             reward_gt.theta, xtr, phi, phi_bar, max_path_length
         )
-        gt_logZ = gt_nll + reward_gt.theta @ phi_bar
 
-    print("GT Reward = ")
-    # print(reward_gt.theta.reshape(-1, 2))
-    print(reward_gt.theta.reshape(4, 4))
-    print("GT Log Z = ")
-    print(gt_logZ)
+    print(f"GT: {gt_nll:.3f} {gt_grad}")
 
     pi_ref = UniformRandomPolicy(len(xtr.actions))
 
     # num_reference_paths = 20
-    for num_reference_paths in [1, 10, 100, 1000, 10000]:
+    for num_reference_paths in 2 ** np.arange(13):
 
-        for rep in range(10):
+        nll_errs = []
+        grad_errs = []
+        for rep in range(100):
 
-            def get_ref_demos():
-                demos = []
-                for _ in range(num_reference_paths):
-                    path_len = np.random.randint(1, max_path_length + 1)
-                    demos.extend(pi_ref.get_rollouts(env, 1, max_path_length=path_len))
-                return demos
+            pi_ref_demos = []
+            for _ in range(num_reference_paths):
+                path_len = np.random.randint(1, max_path_length + 1)
+                pi_ref_demos.extend(
+                    pi_ref.get_rollouts(env, 1, max_path_length=path_len)
+                )
 
-            logZ = sw_modelfree_maxent_irl(
-                reward_gt.theta, phi, xtr.gamma, pi_ref, get_ref_demos, max_path_length
+            nll, grad = sw_maxent_irl_modelfree(
+                reward_gt.theta,
+                xtr,
+                phi,
+                phi_bar,
+                max_path_length,
+                pi_ref,
+                pi_ref_demos,
+                nll_only=False,
             )
+            # print(f"IS: {nll:.3f} {grad}")
+            nll_err = np.sqrt((nll - gt_nll) ** 2)
+            grad_err = np.linalg.norm(gt_grad - grad)
+            nll_errs.append(nll_err)
+            grad_errs.append(grad_err)
 
-            print(num_reference_paths, logZ)
+        print(
+            f"IS ({num_reference_paths}): {np.mean(nll_err):.3f} {np.mean(grad_err):.3f}"
+        )
 
     print("Howedy")
-
-    # # Fixed reward parameters
-    # theta = np.random.randn(len(phi))
-    # # theta = reward_gt.theta
-    #
-    # print("θ = ")
-    # print(theta.reshape(-1, 2))
-    # print()
-    #
-    # with warnings.catch_warnings():
-    #     warnings.filterwarnings(action="ignore", category=PaddedMDPWarning)
-    #     # Compute ground truth values
-    #     gt_nll, gt_grad = sw_maxent_irl(theta, xtr, phi, phi_bar, max_path_length)
-    # gt_logZ = theta @ phi_bar + gt_nll
-    #
-    # print(f"GT NLL = {gt_nll}")
-    # print(f"GT NLL Grad = {gt_grad}")
-    # print()
-    #
-    # # Construct uniform random policy
-    # pi_ref = UniformRandomPolicy(len(xtr.actions))
-    #
-    # # num_reference_paths_sweep = 2 ** np.array([15, 11, 9, 7, 5, 3, 1])
-    # num_reference_paths_sweep = 10 ** np.array([0, 4])
-    # num_replicates = 1000
-    #
-    # for num_reference_paths in num_reference_paths_sweep:
-    #
-    #     print(f"With {num_reference_paths} reference paths")
-    #
-    #     grad_errs = []
-    #     for rep in tqdm(range(num_replicates)):
-    #
-    #         def get_ref_demos():
-    #             demos = []
-    #             for _ in range(num_reference_paths):
-    #                 path_len = np.random.randint(1, max_path_length + 1)
-    #                 demos.extend(pi_ref.get_rollouts(env, 1, max_path_length=path_len))
-    #             return demos
-    #
-    #         with warnings.catch_warnings():
-    #             warnings.filterwarnings(action="ignore", category=PaddedMDPWarning)
-    #             nll, grad = sw_modelfree_maxent_irl(
-    #                 theta,
-    #                 xtr.gamma,
-    #                 phi,
-    #                 phi_bar,
-    #                 pi_ref,
-    #                 get_ref_demos,
-    #                 max_path_length,
-    #                 true_logZ=gt_logZ,
-    #             )
-    #
-    #         grad_err = gt_grad - grad
-    #         grad_errs.append(grad_err)
-    #
-    #         # print(f"NLL error = {nll - gt_nll}")
-    #         # print(f"NLL Grad error = {gt_grad - grad}")
-    #         # print(f"NLL = {nll}")
-    #         # print(f"NLL Grad = {grad}")
-    #
-    #     grad_errs = np.array(grad_errs)
-    #     print(np.mean(grad_errs, axis=0))
 
 
 if __name__ == "__main__":
