@@ -80,6 +80,23 @@ def ile_evd(
         return ile, evd, gt_policy_value
 
 
+def inner_angle(v1, v2):
+    """Find inner angle between two n-vectors in radians
+
+    Args:
+        v1 (numpy array): First vector
+        v2 (numpy array): Second vector
+
+    Returns:
+        (float): Inner angle in radians
+    """
+
+    assert len(v1.shape) == 1
+    assert v1.shape == v2.shape
+
+    return np.arccos(v1 @ v2 / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+
+
 def mean_ci(values, confidence_level=0.95):
     """Compute mean and symmetric confidence interval for a list of values
 
