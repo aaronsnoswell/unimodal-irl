@@ -97,7 +97,15 @@ from mdp_extras import log_sum_exp
 
 
 def sw_maxent_irl_modelfree(
-    x, xtr, phi, phi_bar, max_path_length, pi_ref, pi_ref_demos, nll_only=False
+    x,
+    gamma,
+    phi,
+    phi_bar,
+    max_path_length,
+    pi_ref,
+    pi_ref_demos,
+    nll_only=False,
+    pi_ref_demo_phis_precomputed=None,
 ):
     """Compute MaxEnt IRL negative log likelihood with importance sampling
 
@@ -111,18 +119,33 @@ def sw_maxent_irl_modelfree(
     z = max_path_length
 
     # Compute NLL
-    fis = np.array(
-        [
-            np.log(z)
-            + x @ phi.onpath(pi_ref_demo, xtr.gamma)
-            - pi_ref.path_log_action_probability(pi_ref_demo)
-            for pi_ref_demo in pi_ref_demos
-        ]
-    )
+    if pi_ref_demo_phis_precomputed is not None:
+        # Use pre-computed path feature evaluations for a speed-up
+        assert len(pi_ref_demo_phis_precomputed) == len(pi_ref_demos)
+        fis = np.array(
+            [
+                np.log(z)
+                + x @ pi_ref_demo_phi
+                - pi_ref.path_log_action_probability(pi_ref_demo)
+                for pi_ref_demo, pi_ref_demo_phi in zip(
+                    pi_ref_demos, pi_ref_demo_phis_precomputed
+                )
+            ]
+        )
+    else:
+        fis = np.array(
+            [
+                np.log(z)
+                + x @ phi.onpath(pi_ref_demo, gamma)
+                - pi_ref.path_log_action_probability(pi_ref_demo)
+                for pi_ref_demo in pi_ref_demos
+            ]
+        )
     log_Z_theta = log_sum_exp(fis) - np.log(M)
     nll = log_Z_theta - x @ phi_bar
 
     if nll_only:
+        # print(nll)
         return nll
 
     # Also compute NLL gradient estimate
