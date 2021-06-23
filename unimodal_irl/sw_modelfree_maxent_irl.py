@@ -58,10 +58,16 @@ def sw_maxent_irl_modelfree(
     # Also compute NLL gradient estimate
     F = log_sum_exp(fis)
     pis = np.exp(fis - F)
-    grad_log_Z_theta = np.sum(
-        [pi * phi.onpath(pi_ref_demo) for pi, pi_ref_demo in zip(pis, pi_ref_demos)],
-        axis=0,
-    )
+    if pi_ref_demo_phis_precomputed is not None:
+        grad_log_Z_theta = np.sum(
+            [pi * pi_ref_demo_phi for pi, pi_ref_demo, pi_ref_demo_phi in zip(pis, pi_ref_demos, pi_ref_demo_phis_precomputed)],
+            axis=0,
+        )
+    else:
+        grad_log_Z_theta = np.sum(
+            [pi * phi.onpath(pi_ref_demo) for pi, pi_ref_demo in zip(pis, pi_ref_demos)],
+            axis=0,
+        )
     nll_grad = grad_log_Z_theta - phi_bar
 
     return nll, nll_grad
