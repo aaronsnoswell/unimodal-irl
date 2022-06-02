@@ -292,8 +292,8 @@ def nb_marginals_log(
 
     Returns:
         (numpy array): |S|xL array of state marginals in log space
-        (numpy array): |S|x|A|xL array of state-action marginals in log space
-        (numpy array): |S|x|A|x|S|xL array of state-action-state marginals in log space
+        (numpy array): |S|x|A|x(L-1) array of state-action marginals in log space
+        (numpy array): |S|x|A|x|S|x(L-1) array of state-action-state marginals in log space
     """
 
     if rsa is None:
