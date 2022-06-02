@@ -60,7 +60,9 @@ def sw_maxent_irl_modelfree(
     pis = np.exp(fis - F)
     if pi_ref_demo_phis_precomputed is not None:
         grad_log_Z_theta = np.sum(
-            [pi * pi_ref_demo_phi for pi, pi_ref_demo, pi_ref_demo_phi in zip(pis, pi_ref_demos, pi_ref_demo_phis_precomputed)],
+            [
+                pi * pi_ref_demo_phi
+                for pi, pi_ref_demo, pi_ref_demo_phi in zip(pis, pi_ref_demos, pi_ref_demo_phis_precomputed)],
             axis=0,
         )
     else:
