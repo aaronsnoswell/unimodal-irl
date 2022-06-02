@@ -22,8 +22,10 @@ _NINF = np.finfo(np.float64).min
 
 
 @jit(nopython=True)
-def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
-    """Compute backward message passing variable in log-space
+def nb_forward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
+    """Compute *forward* message passing variable in log-space
+
+    This is denoted 'alpha' in the paper/thesis
 
     Args:
         p0s (numpy array): Starting state probabilities
@@ -36,7 +38,7 @@ def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None)
         rsas (numpy array): |S|x|A|x|S| array of linear state-action-state reward weights
 
     Returns:
-        (numpy array): |S|xL array of backward message values in log space
+        (numpy array): |S|xL array of forward message values in log space
     """
 
     if rs is None:
@@ -83,12 +85,14 @@ def nb_backward_pass_log(p0s, L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None)
 
 
 @jit(nopython=True)
-def nb_backward_pass_log_deterministic_stateonly(
+def nb_forward_pass_log_deterministic_stateonly(
     p0s, L, parents, rs, gamma=1.0, padded=False
 ):
-    """Compute backward message passing variable in log-space
+    """Compute *forward* message passing variable in log-space
 
-    This version of the backward pass function makes extra assumptions so we can handle
+    This is denoted 'alpha' in the paper/thesis
+
+    This version of the forward pass function makes extra assumptions so we can handle
     some much larger problems
      - Dynamics are deterministic
      - Rewards are state-only
@@ -106,7 +110,7 @@ def nb_backward_pass_log_deterministic_stateonly(
             array with extra caution (it won't have the auxiliary state/action included)
 
     Returns:
-        (numpy array): |S|xL array of backward message values in log space
+        (numpy array): |S|xL array of forward message values in log space
     """
     num_states = len(p0s)
 
@@ -161,8 +165,10 @@ def nb_backward_pass_log_deterministic_stateonly(
 
 
 @jit(nopython=True)
-def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
-    """Compute forward message passing variable in log space
+def nb_backward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
+    """Compute *backward* message passing variable in log space
+
+    This is denoted 'beta' in the paper/thesis
 
     Args:
         L (int): Maximum path length
@@ -175,7 +181,7 @@ def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
         rsas (numpy array): Linear state-action-state reward weights
 
     Returns:
-        (numpy array): |S| x L array of forward message values in log space
+        (numpy array): |S| x L array of backward message values in log space
     """
 
     if rs is None:
@@ -223,10 +229,12 @@ def nb_forward_pass_log(L, t_mat, gamma=1.0, rs=None, rsa=None, rsas=None):
 
 
 @jit(nopython=True)
-def nb_forward_pass_log_deterministic_stateonly(L, children, rs, gamma=1.0):
-    """Compute forward message passing variable in log space
+def nb_backward_pass_log_deterministic_stateonly(L, children, rs, gamma=1.0):
+    """Compute *backward* message passing variable in log space
 
-    This version of the forward pass function makes extra assumptions so we can handle
+    This is denoted 'beta' in the paper/thesis
+
+    This version of the backward pass function makes extra assumptions so we can handle
     some much larger problems
      - Dynamics are deterministic
      - Rewards are state-only
@@ -241,7 +249,7 @@ def nb_forward_pass_log_deterministic_stateonly(L, children, rs, gamma=1.0):
         gamma (float): Discount factor
 
     Returns:
-        (numpy array): |S| x L array of forward message values in log space
+        (numpy array): |S| x L array of backward message values in log space
     """
     num_states = len(children)
 
@@ -281,8 +289,8 @@ def nb_marginals_log(
     Args:
         L (int): Maximum path length
         t_mat (numpy array): |S|x|A|x|S| transition matrix
-        alpha_log (numpy array): |S|xL array of backward message values in log space
-        beta_log (numpy array): |S|xL array of forward message values in log space
+        alpha_log (numpy array): |S|xL array of *forward* message values in log space
+        beta_log (numpy array): |S|xL array of *backward* message values in log space
         Z_theta_log (float): Partition value in log space
 
         gamma (float): Discount factor
@@ -311,7 +319,7 @@ def nb_marginals_log(
 
             # if np.isneginf(alpha_log[s1, t]):
             if np.exp(alpha_log[s1, t]) == 0:
-                # Catch edge case where the backward message value is zero to prevent
+                # Catch edge case where the forward message value is zero to prevent
                 # floating point error
                 pts[s1, t] = -np.inf
                 ptsa[s1, :, t] = -np.inf
@@ -380,8 +388,8 @@ def nb_marginals_log_deterministic_stateonly(
         children (numpy array): Fixed-size children array. Rows indices correspond to
             states, and the first X elements of each row contain the child state IDs
             for that state. Any remaining elements of that row are then -1.
-        alpha_log (numpy array): |S|xL array of backward message values in log space
-        beta_log (numpy array): |S|xL array of forward message values in log space
+        alpha_log (numpy array): |S|xL array of *forward* message values in log space
+        beta_log (numpy array): |S|xL array of *backward* message values in log space
         Z_theta_log (float): Partition value in log space
 
     Returns:
@@ -398,7 +406,7 @@ def nb_marginals_log_deterministic_stateonly(
 
             # if np.isneginf(alpha_log[s1, t]):
             if np.exp(alpha_log[s1, t]) == 0:
-                # Catch edge case where the backward message value is zero to prevent
+                # Catch edge case where the forward message value is zero to prevent
                 # floating point error
                 pts[s1, t] = -np.inf
             else:
@@ -440,7 +448,7 @@ def log_partition(L, alpha_log, padded=True):
 
     Args:
         L (int): Maximum path length
-        alpha_log (numpy array): |S|xL backward message variable in log space
+        alpha_log (numpy array): |S|xL *forward* message variable in log space
 
         padded (bool): If true, the final row of the alpha matrix corresponds
             to a dummy state which is used for MDP padding
@@ -517,7 +525,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
         # Catch float overflow as an error - reward magnitude is too large for
         # exponentiation with this max path length
         with np.errstate(over="raise"):
-            alpha_log = nb_backward_pass_log(
+            alpha_log = nb_forward_pass_log(
                 xtr.p0s,
                 max_path_length,
                 xtr.t_mat,
@@ -544,7 +552,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
         # exponentiation with this max path length
         with np.errstate(over="raise"):
             # Compute alpha_log
-            alpha_log = nb_backward_pass_log_deterministic_stateonly(
+            alpha_log = nb_forward_pass_log_deterministic_stateonly(
                 xtr.p0s,
                 max_path_length,
                 xtr.parents_fixedsize,
@@ -575,7 +583,7 @@ def maxent_path_logprobs(xtr, phi, reward, rollouts):
 def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
     """Find the ML path from s1 to sg under a MaxEnt model
 
-    If transitions can inccur +ve rewards te returned paths may contain loops
+    If transitions can incur +ve rewards the returned paths may contain loops
 
     NB ajs 14/Jan/2020 The log likelihood of the path that we compute internally
         is fine for doing viterbi ML path inference, but it's not the actual path
@@ -658,7 +666,7 @@ def maxent_ml_path(xtr, phi, reward, start, goal, max_path_length):
                             sa_lls[s1, a, t], transition_ll + s_lls[s2, t + 1]
                         )
 
-    # Max-reduce to get state/action ML trellises for conveience
+    # Max-reduce to get state/action ML trellises for convenience
     s_lls = np.max(sa_lls, axis=1)
 
     # Identify our starting time
@@ -736,8 +744,8 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
         # exponentiation with this max path length
         with np.errstate(over="raise"):
 
-            # Compute backward message
-            alpha_log = nb_backward_pass_log(
+            # Compute forward message
+            alpha_log = nb_forward_pass_log(
                 xtr.p0s,
                 max_path_length,
                 xtr.t_mat,
@@ -762,8 +770,8 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
             # Compute gradient
             with np.errstate(over="raise"):
 
-                # Compute forward message
-                beta_log = nb_forward_pass_log(
+                # Compute backward message
+                beta_log = nb_backward_pass_log(
                     max_path_length,
                     xtr.t_mat,
                     gamma=xtr.gamma,
@@ -842,7 +850,7 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
         # exponentiation with this max path length
         with np.errstate(over="raise"):
             # Compute alpha_log
-            alpha_log = nb_backward_pass_log_deterministic_stateonly(
+            alpha_log = nb_forward_pass_log_deterministic_stateonly(
                 xtr.p0s,
                 max_path_length,
                 xtr.parents_fixedsize,
@@ -866,7 +874,7 @@ def sw_maxent_irl(x, xtr, phi, phi_bar, max_path_length, nll_only=False):
             # Compute NLL gradient as well
             with np.errstate(over="raise"):
                 # Compute beta_log
-                beta_log = nb_forward_pass_log_deterministic_stateonly(
+                beta_log = nb_backward_pass_log_deterministic_stateonly(
                     max_path_length, xtr.children_fixedsize, rs, gamma=xtr.gamma
                 )
 

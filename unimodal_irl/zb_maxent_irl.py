@@ -5,7 +5,7 @@ import numpy as np
 from numba import jit
 
 from mdp_extras import Linear, Disjoint
-from unimodal_irl.sw_maxent_irl import nb_backward_pass_log, log_partition
+from unimodal_irl.sw_maxent_irl import nb_forward_pass_log, log_partition
 
 
 @jit(nopython=True)
@@ -237,8 +237,8 @@ def zb_maxent_irl(x, xtr, phi, phi_bar, max_path_length, version="10", nll_only=
     # exponentiation with this max path length
     with np.errstate(over="raise"):
 
-        # Compute backward message
-        alpha_log = nb_backward_pass_log(
+        # Compute forward message
+        alpha_log = nb_forward_pass_log(
             xtr.p0s, max_path_length, xtr.t_mat, gamma=xtr.gamma, rs=rs
         )
 
