@@ -34,7 +34,7 @@ import numpy as np
 
 from scipy.optimize import minimize
 
-from mdp_extras import q_vi, OptimalPolicy, padding_trick
+from mdp_extras import vi, OptimalPolicy, padding_trick
 from mdp_extras.envs import frozen_lake_extras
 
 from unimodal_irl import sw_maxent_irl
@@ -46,7 +46,7 @@ env = gym.make("FrozenLake-v0")
 xtr, phi, reward = frozen_lake_extras(env, gamma=0.99)
 
 # Find optimal Q(s, a) function
-q_star = q_vi(xtr, phi, reward)
+q_star = vi(xtr, phi, reward)
 
 # Find optimal stationary stochastic policy pi(a | s)
 pi_star = OptimalPolicy(q_star, stochastic=True)
