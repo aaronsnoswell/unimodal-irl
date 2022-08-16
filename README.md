@@ -34,7 +34,7 @@ import numpy as np
 
 from scipy.optimize import minimize
 
-from mdp_extras import q_vi, OptimalPolicy, padding_trick
+from mdp_extras import vi, OptimalPolicy, padding_trick
 from mdp_extras.envs import frozen_lake_extras
 
 from unimodal_irl import sw_maxent_irl
@@ -46,7 +46,7 @@ env = gym.make("FrozenLake-v0")
 xtr, phi, reward = frozen_lake_extras(env, gamma=0.99)
 
 # Find optimal Q(s, a) function
-q_star = q_vi(xtr, phi, reward)
+v_star, q_star = vi(xtr, phi, reward)
 
 # Find optimal stationary stochastic policy pi(a | s)
 pi_star = OptimalPolicy(q_star, stochastic=True)
@@ -55,7 +55,7 @@ pi_star = OptimalPolicy(q_star, stochastic=True)
 rollouts = pi_star.get_rollouts(env, 10)
 
 # Apply padding trick to make all demonstrations the same length
-xtr, phi, reward, rollouts = padding_trick(xtr, phi, reward, rollouts)
+xtr, rollouts = padding_trick(xtr, rollouts, 10)
 
 # Initial reward parameter estimate
 theta0 = np.zeros(len(phi)) + np.mean(reward.range)
